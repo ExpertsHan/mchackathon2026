@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="800" viewBox="0 0 1200 800" role="img" aria-labelledby="title desc">
+  <title id="title">這份資料可以交給 AI 嗎</title>
+  <desc id="desc">依序判斷是否含高度敏感資料、是否取得授權、是否能去識別化，最後只提供最少必要內容。</desc>
+  <defs>
+    <style>
+      text { font-family: NotoSansTC-Regular; fill: #17324D; }
+      .title { font-size: 46px; font-weight: 800; }
+      .subtitle { font-size: 23px; font-weight: 500; fill: #587086; }
+      .node { font-size: 26px; font-weight: 700; }
+      .small { font-size: 21px; font-weight: 600; }
+      .yesno { font-size: 20px; font-weight: 800; }
+    </style>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#6B8296"/>
+    </marker>
+  </defs>
+
+  <rect width="1200" height="800" fill="#F6FAFB"/>
+  <text class="title" x="55" y="65">這份資料可以交給 AI 嗎？</text>
+  <text class="subtitle" x="57" y="102">四個問題走到底；任何一步不確定，就先停止並詢問。</text>
+
+  <rect x="465" y="125" width="270" height="58" rx="29" fill="#17324D"/>
+  <text x="600" y="163" text-anchor="middle" font-size="25" font-weight="700" fill="#FFFFFF">準備把內容交給 AI</text>
+  <path d="M600 183V204" stroke="#6B8296" stroke-width="5" marker-end="url(#arrow)"/>
+
+  <polygon points="600,210 770,275 600,340 430,275" fill="#FFF1EF" stroke="#E36A4A" stroke-width="5"/>
+  <text class="node" x="600" y="268" text-anchor="middle">
+    <tspan x="600" dy="0">含帳密、付款、證件</tspan>
+    <tspan x="600" dy="34">或未公開機密？</tspan>
+  </text>
+
+  <path d="M770 275H845" stroke="#6B8296" stroke-width="5" marker-end="url(#arrow)"/>
+  <text class="yesno" x="808" y="260" text-anchor="middle" fill="#A2372B">有</text>
+  <rect x="860" y="225" width="285" height="100" rx="24" fill="#FFE3DE" stroke="#C94A3A" stroke-width="4"/>
+  <text class="node" x="1002" y="263" text-anchor="middle" fill="#A2372B">停止上傳</text>
+  <text class="small" x="1002" y="296" text-anchor="middle" fill="#A2372B">改用安全流程或人工處理</text>
+
+  <path d="M600 340V365" stroke="#6B8296" stroke-width="5" marker-end="url(#arrow)"/>
+  <text class="yesno" x="625" y="361" fill="#176C43">沒有</text>
+
+  <polygon points="600,370 770,435 600,500 430,435" fill="#FFF8E7" stroke="#C17A12" stroke-width="5"/>
+  <text class="node" x="600" y="428" text-anchor="middle">
+    <tspan x="600" dy="0">你有權使用，而且</tspan>
+    <tspan x="600" dy="34">真的需要交給 AI？</tspan>
+  </text>
+
+  <path d="M430 435H345" stroke="#6B8296" stroke-width="5" marker-end="url(#arrow)"/>
+  <text class="yesno" x="388" y="420" text-anchor="middle" fill="#8A560C">沒有／不確定</text>
+  <rect x="55" y="385" width="275" height="100" rx="24" fill="#FFF1CC" stroke="#C17A12" stroke-width="4"/>
+  <text class="node" x="192" y="424" text-anchor="middle" fill="#8A560C">先取得同意</text>
+  <text class="small" x="192" y="457" text-anchor="middle" fill="#8A560C">或改用虛構範例</text>
+
+  <path d="M600 500V525" stroke="#6B8296" stroke-width="5" marker-end="url(#arrow)"/>
+  <text class="yesno" x="625" y="521" fill="#176C43">有</text>
+
+  <polygon points="600,530 770,595 600,660 430,595" fill="#EAF2FC" stroke="#3268B2" stroke-width="5"/>
+  <text class="node" x="600" y="588" text-anchor="middle">
+    <tspan x="600" dy="0">能刪除身分線索</tspan>
+    <tspan x="600" dy="34">並減少內容嗎？</tspan>
+  </text>
+
+  <path d="M770 595H845" stroke="#6B8296" stroke-width="5" marker-end="url(#arrow)"/>
+  <text class="yesno" x="808" y="580" text-anchor="middle" fill="#8A560C">不能</text>
+  <rect x="860" y="545" width="285" height="100" rx="24" fill="#E8F0FA" stroke="#3268B2" stroke-width="4"/>
+  <text class="node" x="1002" y="584" text-anchor="middle" fill="#23528E">用核准工具</text>
+  <text class="small" x="1002" y="617" text-anchor="middle" fill="#23528E">或請資料擁有人決定</text>
+
+  <path d="M600 660V684" stroke="#6B8296" stroke-width="5" marker-end="url(#arrow)"/>
+  <text class="yesno" x="625" y="681" fill="#176C43">能</text>
+  <rect x="360" y="695" width="480" height="72" rx="26" fill="#DDF4E7" stroke="#238A57" stroke-width="4"/>
+  <text class="node" x="600" y="741" text-anchor="middle" fill="#176C43">只傳最少必要內容，完成後查證</text>
+</svg>

@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1080" viewBox="0 0 1080 1080" role="img" aria-labelledby="title desc">
+  <title id="title">2023 年 ChatGPT 資料暴露事件</title>
+  <desc id="desc">快取錯誤造成部分聊天標題與少量付費資料可能顯示給其他活躍使用者，提醒讀者不要把祕密只交給平台保護。</desc>
+  <defs>
+    <style>
+      text { font-family: NotoSansTC-Regular; fill: #17324D; }
+      .kicker { font-size: 25px; font-weight: 800; fill: #FFFFFF; letter-spacing: 1px; }
+      .date { font-size: 22px; font-weight: 700; fill: #E6F6F4; }
+      .title { font-size: 44px; font-weight: 800; fill: #FFFFFF; }
+      .head { font-size: 29px; font-weight: 800; }
+      .body { font-size: 27px; font-weight: 500; }
+      .bullet { font-size: 26px; font-weight: 600; }
+      .source { font-size: 21px; font-weight: 500; fill: #5E7387; }
+    </style>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="6" stdDeviation="9" flood-color="#17324D" flood-opacity="0.11"/>
+    </filter>
+  </defs>
+
+  <rect width="1080" height="1080" fill="#F4FAF9"/>
+  <rect width="1080" height="180" fill="#167D88"/>
+  <circle cx="963" cy="68" r="105" fill="#36A7AA" opacity="0.55"/>
+  <text class="kicker" x="60" y="48">重大 AI 資安事件｜案例 01</text>
+  <text class="title" x="60" y="111">聊天資料跑到別人畫面</text>
+  <text class="date" x="62" y="151">事件：2023-03-20</text>
+  <g transform="translate(880 42)" fill="none" stroke="#FFFFFF" stroke-width="8" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M5 10h120v78H55l-31 25V88H5z"/>
+    <path d="M31 39h68M31 61h46"/>
+    <path d="M116 95l20 20M136 95l-20 20"/>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="55" y="215" width="970" height="210" rx="28" fill="#FFFFFF"/>
+    <circle cx="105" cy="266" r="24" fill="#DDF4F1"/>
+    <text class="head" x="145" y="276" fill="#12656D">發生什麼事？</text>
+    <text class="body" x="90" y="327">
+      <tspan x="90" dy="0">ChatGPT 的快取軟體發生錯誤，部分活躍使用者可能看見</tspan>
+      <tspan x="90" dy="40">其他人的聊天標題。OpenAI 表示，少部分 Plus 使用者的姓名、</tspan>
+      <tspan x="90" dy="40">電子郵件、帳單地址、信用卡末四碼與到期日也可能暴露。</tspan>
+    </text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="55" y="450" width="970" height="145" rx="28" fill="#FFF1EF"/>
+    <circle cx="105" cy="500" r="24" fill="#FFD8D1"/>
+    <text class="head" x="145" y="510" fill="#A2372B">為什麼危險？</text>
+    <text class="body" x="90" y="557">線上服務也會出錯。刪除畫面不等於所有副本立即消失，</text>
+    <text class="body" x="90" y="592">所以祕密不能只靠平台替你保護。</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="55" y="620" width="970" height="235" rx="28" fill="#FFFFFF"/>
+    <circle cx="105" cy="671" r="24" fill="#E6EEF8"/>
+    <text class="head" x="145" y="681" fill="#23528E">你可以怎麼做？</text>
+    <text class="bullet" x="90" y="732">
+      <tspan x="90" dy="0">● 不輸入帳密、付款、證件與未公開機密。</tspan>
+      <tspan x="90" dy="43">● 先去識別化，只傳完成任務所需的最少內容。</tspan>
+      <tspan x="90" dy="43">● 若誤傳，立即刪除、撤銷憑證並通知資料擁有人。</tspan>
+    </text>
+  </g>
+
+  <rect x="55" y="880" width="970" height="120" rx="28" fill="#17324D"/>
+  <text x="90" y="925" font-size="24" font-weight="800" fill="#8FD5CF">青安補助通在哪裡幫忙？</text>
+  <text x="90" y="967" font-size="27" font-weight="600" fill="#FFFFFF">文件上傳前提醒遮蔽；送出前用 30 秒情境題再次確認。</text>
+
+  <text class="source" x="58" y="1043">來源：OpenAI（2023-03-24）、The Verge（2023-03-25）｜完整連結見 SOURCES.md</text>
+</svg>

@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1350" viewBox="0 0 1080 1350" role="img" aria-labelledby="title desc">
+  <title id="title">AI 安全使用四步驟</title>
+  <desc id="desc">先看來源、再看資料、一定查證、最後看權利的一頁式懶人包。</desc>
+  <defs>
+    <style>
+      text { font-family: NotoSansTC-Regular; fill: #17324D; }
+      .title { font-size: 64px; font-weight: 800; letter-spacing: 1px; }
+      .subtitle { font-size: 28px; font-weight: 500; fill: #47647D; }
+      .step { font-size: 42px; font-weight: 800; }
+      .body { font-size: 30px; font-weight: 500; }
+      .small { font-size: 23px; font-weight: 500; fill: #5D7286; }
+      .number { font-size: 29px; font-weight: 800; fill: #FFFFFF; }
+      .rule { font-size: 36px; font-weight: 800; fill: #FFFFFF; }
+    </style>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#17324D" flood-opacity="0.10"/>
+    </filter>
+  </defs>
+
+  <rect width="1080" height="1350" fill="#F5FAF9"/>
+  <circle cx="965" cy="105" r="150" fill="#DDF4F1"/>
+  <circle cx="70" cy="250" r="95" fill="#FFF0D2"/>
+
+  <text class="title" x="70" y="105">AI 可以幫你更快</text>
+  <text class="title" x="70" y="180">但不要把祕密交給它</text>
+  <text class="subtitle" x="72" y="232">按下送出前，依序做完這四件事</text>
+
+  <g filter="url(#shadow)">
+    <rect x="65" y="290" width="460" height="365" rx="32" fill="#FFFFFF"/>
+    <circle cx="125" cy="352" r="38" fill="#167D88"/>
+    <text class="number" x="125" y="363" text-anchor="middle">01</text>
+    <text class="step" x="185" y="368">先看來源</text>
+    <text class="body" x="95" y="468">
+      <tspan x="95" dy="0">使用官方網站與 App</tspan>
+      <tspan x="95" dy="42">核對網址、開發者、權限</tspan>
+      <tspan x="95" dy="42">不下載破解或私訊安裝檔</tspan>
+    </text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="555" y="290" width="460" height="365" rx="32" fill="#FFFFFF"/>
+    <circle cx="615" cy="352" r="38" fill="#E36A4A"/>
+    <text class="number" x="615" y="363" text-anchor="middle">02</text>
+    <text class="step" x="675" y="368">再看資料</text>
+    <text class="body" x="585" y="468">
+      <tspan x="585" dy="0">個資、帳密、付款資訊</tspan>
+      <tspan x="585" dy="42">證件與機密不要直接貼</tspan>
+      <tspan x="585" dy="42">只給完成任務所需資料</tspan>
+    </text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="65" y="690" width="460" height="365" rx="32" fill="#FFFFFF"/>
+    <circle cx="125" cy="752" r="38" fill="#3268B2"/>
+    <text class="number" x="125" y="763" text-anchor="middle">03</text>
+    <text class="step" x="185" y="768">一定查證</text>
+    <text class="body" x="95" y="868">
+      <tspan x="95" dy="0">打開原始來源核對</tspan>
+      <tspan x="95" dy="42">重要數字與引用要確認</tspan>
+      <tspan x="95" dy="42">高風險決定交由人判斷</tspan>
+    </text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="555" y="690" width="460" height="365" rx="32" fill="#FFFFFF"/>
+    <circle cx="615" cy="752" r="38" fill="#C17A12"/>
+    <text class="number" x="615" y="763" text-anchor="middle">04</text>
+    <text class="step" x="675" y="768">最後看權利</text>
+    <text class="body" x="585" y="868">
+      <tspan x="585" dy="0">確認著作權、肖像權</tspan>
+      <tspan x="585" dy="42">商用授權與揭露要求</tspan>
+      <tspan x="585" dy="42">保存來源及修改紀錄</tspan>
+    </text>
+  </g>
+
+  <rect x="65" y="1100" width="950" height="150" rx="34" fill="#17324D"/>
+  <text class="rule" x="540" y="1163" text-anchor="middle">AI 是助理，不是裁判</text>
+  <text x="540" y="1212" text-anchor="middle" font-size="27" font-weight="500" fill="#DDE9F1">你負責決定，它負責幫忙</text>
+
+  <text class="small" x="70" y="1310">青安補助通｜AI 安全新手村｜低風險不等於零風險</text>
+</svg>

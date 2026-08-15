@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1080" viewBox="0 0 1080 1080" role="img" aria-labelledby="title desc">
+  <title id="title">2024 年香港多人深偽視訊詐騙</title>
+  <desc id="desc">香港警方表示，一名財務人員在多人深偽視訊後匯出約二億港元，提醒讀者用獨立管道確認身分與付款。</desc>
+  <defs>
+    <style>
+      text { font-family: NotoSansTC-Regular; fill: #17324D; }
+      .kicker { font-size: 25px; font-weight: 800; fill: #FFFFFF; letter-spacing: 1px; }
+      .date { font-size: 22px; font-weight: 700; fill: #FFF0D2; }
+      .title { font-size: 44px; font-weight: 800; fill: #FFFFFF; }
+      .head { font-size: 29px; font-weight: 800; }
+      .body { font-size: 27px; font-weight: 500; }
+      .bullet { font-size: 26px; font-weight: 600; }
+      .source { font-size: 21px; font-weight: 500; fill: #5E7387; }
+    </style>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="6" stdDeviation="9" flood-color="#17324D" flood-opacity="0.11"/>
+    </filter>
+  </defs>
+
+  <rect width="1080" height="1080" fill="#FFFAF2"/>
+  <rect width="1080" height="180" fill="#C17A12"/>
+  <circle cx="963" cy="68" r="105" fill="#E6A640" opacity="0.55"/>
+  <text class="kicker" x="60" y="48">重大 AI 資安事件｜案例 02</text>
+  <text class="title" x="60" y="111">視訊裡的同事全是假的</text>
+  <text class="date" x="62" y="151">報導：2024-02-04</text>
+  <g transform="translate(868 38)" fill="none" stroke="#FFFFFF" stroke-width="8" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="8" y="15" width="138" height="92" rx="15"/>
+    <circle cx="50" cy="52" r="18"/>
+    <path d="M24 91c5-21 48-21 53 0M106 42h20M106 63h20M106 84h20"/>
+    <path d="M118 116l25 25M143 116l-25 25"/>
+  </g>
+
+  <g>
+    <rect x="55" y="215" width="970" height="210" rx="28" fill="#FFFFFF"/>
+    <circle cx="105" cy="266" r="24" fill="#FFF1CC"/>
+    <text class="head" x="145" y="276" fill="#8A560C">發生什麼事？</text>
+    <text class="body" x="90" y="327">
+      <tspan x="90" dy="0">香港警方表示，一名跨國公司財務人員參加多人視訊，</tspan>
+      <tspan x="90" dy="40">看見並聽見多名熟悉同事，最後依指示匯出約 2 億港元。</tspan>
+      <tspan x="90" dy="40">警方說，視訊中的人物其實都是深偽重製。</tspan>
+    </text>
+  </g>
+
+  <g>
+    <rect x="55" y="450" width="970" height="145" rx="28" fill="#FFF1EF"/>
+    <circle cx="105" cy="500" r="24" fill="#FFD8D1"/>
+    <text class="head" x="145" y="510" fill="#A2372B">為什麼危險？</text>
+    <text class="body" x="90" y="557">看見臉、聽見聲音，已不足以證明對方身分。</text>
+    <text class="body" x="90" y="592">「祕密」「緊急」「不能告訴別人」都是需要停下來的警訊。</text>
+  </g>
+
+  <g>
+    <rect x="55" y="620" width="970" height="235" rx="28" fill="#FFFFFF"/>
+    <circle cx="105" cy="671" r="24" fill="#E6EEF8"/>
+    <text class="head" x="145" y="681" fill="#23528E">你可以怎麼做？</text>
+    <text class="bullet" x="90" y="732">
+      <tspan x="90" dy="0">● 用原有通訊錄的電話或官方管道，獨立回撥確認。</tspan>
+      <tspan x="90" dy="43">● 匯款、改帳號、交機密資料必須走雙人核准流程。</tspan>
+      <tspan x="90" dy="43">● 不用對方提供的新號碼或新連結作為唯一證明。</tspan>
+    </text>
+  </g>
+
+  <rect x="55" y="880" width="970" height="120" rx="28" fill="#17324D"/>
+  <text x="90" y="925" font-size="24" font-weight="800" fill="#FFD878">青安補助通在哪裡幫忙？</text>
+  <text x="90" y="967" font-size="27" font-weight="600" fill="#FFFFFF">安全護照推送深偽演練：高風險要求一律改用獨立管道確認。</text>
+
+  <text class="source" x="58" y="1043">來源：CNN 引述香港警方（2024-02-04）｜完整連結見 SOURCES.md</text>
+</svg>

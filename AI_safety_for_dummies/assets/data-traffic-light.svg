@@ -1,0 +1,78 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="700" viewBox="0 0 1200 700" role="img" aria-labelledby="title desc">
+  <title id="title">交給 AI 前的資料紅綠燈</title>
+  <desc id="desc">公開資料風險較低，敏感資料先去識別化，帳密、證件、付款及機密資料不得上傳。</desc>
+  <defs>
+    <style>
+      text { font-family: NotoSansTC-Regular; fill: #17324D; }
+      .title { font-size: 48px; font-weight: 800; }
+      .subtitle { font-size: 24px; font-weight: 500; fill: #526A7F; }
+      .head { font-size: 36px; font-weight: 800; }
+      .label { font-size: 23px; font-weight: 700; }
+      .body { font-size: 24px; font-weight: 500; }
+      .note { font-size: 25px; font-weight: 800; }
+    </style>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="6" stdDeviation="8" flood-color="#17324D" flood-opacity="0.10"/>
+    </filter>
+  </defs>
+
+  <rect width="1200" height="700" fill="#F6FAFB"/>
+  <text class="title" x="55" y="72">交給 AI 前，先看資料紅綠燈</text>
+  <text class="subtitle" x="57" y="112">不知道屬於哪一類？先當紅燈處理，再詢問資料擁有人或管理者。</text>
+
+  <g filter="url(#shadow)">
+    <rect x="45" y="150" width="350" height="455" rx="30" fill="#FFFFFF"/>
+    <rect x="45" y="150" width="350" height="95" rx="30" fill="#DDF4E7"/>
+    <rect x="45" y="215" width="350" height="30" fill="#DDF4E7"/>
+    <circle cx="102" cy="198" r="27" fill="#238A57"/>
+    <text x="102" y="214" text-anchor="middle" font-size="46" font-weight="800" fill="#FFFFFF">✓</text>
+    <text class="head" x="145" y="211" fill="#176C43">綠燈</text>
+    <text class="label" x="75" y="288" fill="#176C43">風險較低，可以開始</text>
+    <text class="body" x="75" y="340">
+      <tspan x="75" dy="0">• 已公開的政府資料</tspan>
+      <tspan x="75" dy="45">• 自己的非機密草稿</tspan>
+      <tspan x="75" dy="45">• 不含真人的虛構範例</tspan>
+      <tspan x="75" dy="45">• 一般格式與腦力激盪</tspan>
+    </text>
+    <rect x="75" y="530" width="290" height="48" rx="16" fill="#EDF8F2"/>
+    <text x="220" y="562" text-anchor="middle" font-size="21" font-weight="700" fill="#176C43">仍要查證與確認授權</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="425" y="150" width="350" height="455" rx="30" fill="#FFFFFF"/>
+    <rect x="425" y="150" width="350" height="95" rx="30" fill="#FFF1CC"/>
+    <rect x="425" y="215" width="350" height="30" fill="#FFF1CC"/>
+    <circle cx="482" cy="198" r="27" fill="#C17A12"/>
+    <text x="482" y="215" text-anchor="middle" font-size="47" font-weight="800" fill="#FFFFFF">!</text>
+    <text class="head" x="525" y="211" fill="#8A560C">黃燈</text>
+    <text class="label" x="455" y="288" fill="#8A560C">先處理，再決定</text>
+    <text class="body" x="455" y="340">
+      <tspan x="455" dy="0">• 履歷、發票、會議紀錄</tspan>
+      <tspan x="455" dy="45">• 含真人的照片或聲音</tspan>
+      <tspan x="455" dy="45">• 能辨認當事人的資料</tspan>
+      <tspan x="455" dy="45">• 公司限定工具內的內容</tspan>
+    </text>
+    <rect x="455" y="530" width="290" height="48" rx="16" fill="#FFF8E7"/>
+    <text x="600" y="562" text-anchor="middle" font-size="21" font-weight="700" fill="#8A560C">去識別化＋取得授權</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="805" y="150" width="350" height="455" rx="30" fill="#FFFFFF"/>
+    <rect x="805" y="150" width="350" height="95" rx="30" fill="#FFE3DE"/>
+    <rect x="805" y="215" width="350" height="30" fill="#FFE3DE"/>
+    <circle cx="862" cy="198" r="27" fill="#C94A3A"/>
+    <text x="862" y="214" text-anchor="middle" font-size="46" font-weight="800" fill="#FFFFFF">×</text>
+    <text class="head" x="905" y="211" fill="#A2372B">紅燈</text>
+    <text class="label" x="835" y="288" fill="#A2372B">不要上傳</text>
+    <text class="body" x="835" y="340">
+      <tspan x="835" dy="0">• 密碼、OTP、API Key</tspan>
+      <tspan x="835" dy="45">• 證件、銀行、完整卡號</tspan>
+      <tspan x="835" dy="45">• 病歷與生物辨識資料</tspan>
+      <tspan x="835" dy="45">• 未公開合約、原始碼</tspan>
+    </text>
+    <rect x="835" y="530" width="290" height="48" rx="16" fill="#FFF1EF"/>
+    <text x="980" y="562" text-anchor="middle" font-size="21" font-weight="700" fill="#A2372B">改用安全流程或人工處理</text>
+  </g>
+
+  <text class="note" x="600" y="660" text-anchor="middle">最低原則：只提供完成任務所需的最少資料</text>
+</svg>
