@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>後台審核 - AI 補助申請</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; background:#f6f7fb; color:#1f2430; }
+  .container { max-width:1000px; margin:0 auto; padding:24px 16px 60px; }
+  h1 { font-size:20px; }
+  p.sub { color:#6b7280; font-size:13px; }
+  table { width:100%; border-collapse:collapse; background:#fff; border-radius:10px; overflow:hidden; }
+  th, td { text-align:left; padding:10px 12px; font-size:13px; border-bottom:1px solid #eee; vertical-align:top; }
+  th { background:#f3f4f6; }
+  .light { display:inline-flex; align-items:center; gap:6px; font-size:12px; font-weight:600; padding:3px 10px; border-radius:999px; }
+  .light.green { background:#dcfce7; color:#15803d; }
+  .light.yellow { background:#fef3c7; color:#b45309; }
+  .light.red { background:#fee2e2; color:#b91c1c; }
+  .light.none { background:#f3f4f6; color:#9ca3af; }
+  .status-tag { padding:2px 8px; border-radius:999px; font-size:12px; background:#f3f4f6; white-space:nowrap; }
+  .status-tag.reviewing { background:#fef3c7; color:#b45309; }
+  .status-tag.need_supplement { background:#fee2e2; color:#b91c1c; }
+  .status-tag.approved { background:#dcfce7; color:#15803d; }
+  .status-tag.disbursed { background:#dbeafe; color:#1e40af; }
+  .status-tag.rejected { background:#f3f4f6; color:#6b7280; }
+  .status-tag.submitted { background:#e0e7ff; color:#4338ca; }
+  .status-tag.draft { background:#f3f4f6; color:#9ca3af; }
+  select, textarea, button, input { font-size:13px; padding:6px 8px; border-radius:6px; border:1px solid #ddd; }
+  button { cursor:pointer; background:#2563eb; color:#fff; border:none; }
+  .login { max-width:320px; margin:80px auto; text-align:center; }
+  .login input { width:100%; margin:10px 0; }
+  .detail { display:none; background:#fafafa; }
+  .detail.open { display:table-row; }
+  .reasons { list-style:none; margin:6px 0; padding:0; font-size:12px; }
+  .reasons li { margin-bottom:4px; padding-left:18px; position:relative; }
+  .reasons li.red::before { content:"🔴"; position:absolute; left:0; }
+  .reasons li.yellow::before { content:"🟡"; position:absolute; left:0; }
+  .docs-grid { display:flex; flex-wrap:wrap; gap:10px; margin-top:8px; }
+  .doc-box { text-align:center; }
+  .doc-box img { width:110px; height:110px; object-fit:cover; border-radius:6px; border:1px solid #ddd; cursor:pointer; }
+  .doc-box .label { font-size:11px; color:#6b7280; margin-top:2px; }
+  .ocr-box { background:#fff; border:1px solid #eee; border-radius:8px; padding:8px; font-size:11px; margin-top:4px; max-width:150px; text-align:left; }
+  .compare-table { font-size:12px; margin-top:10px; border-collapse:collapse; }
+  .compare-table td, .compare-table th { padding:4px 8px; border:1px solid #eee; }
+</style>
+</head>
+<body>
+<div id="loginBox" class="container login">
+  <h1>後台登入</h1>
+  <input type="password" id="tokenInput" placeholder="輸入 Admin Token" />
+  <button id="loginBtn" style="width:100%;">登入</button>
+</div>
+
+<div id="app" class="container" style="display:none;">
+  <h1>AI 補助申請 - 智慧審核後台</h1>
+  <p class="sub">燈號是 AI 依 OCR 比對結果自動建議，最終是否核准仍由承辦人員人工決定。</p>
+  <table>
+    <thead>
+      <tr><th>燈號</th><th>受理編號</th><th>姓名</th><th>申請工具</th><th>金額</th><th>狀態</th><th>建立時間</th><th></th></tr>
+    </thead>
+    <tbody id="tbody"></tbody>
+  </table>
+</div>
+
+<script>
+let token = localStorage.getItem('adminToken') || '';
+
+const STATUS_LABEL = {
+  draft: '草稿', submitted: '已送出', reviewing: '審核中',
+  need_supplement: '需補件', approved: '已核准', disbursed: '已撥款', rejected: '不通過',
+};
+const LIGHT_LABEL = { green: '🟢 綠燈', yellow: '🟡 黃燈', red: '🔴 紅燈' };
+
+document.getElementById('loginBtn').addEventListener('click', () => {
+  token = document.getElementById('tokenInput').value.trim();
+  localStorage.setItem('adminToken', token);
+  init();
+});
+
+async function init() {
+  const res = await fetch('/api/admin/applications', { headers: { 'x-admin-token': token } });
+  if (!res.ok) { alert('Token 錯誤或未授權'); return; }
+  document.getElementById('loginBox').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+  renderTable(await res.json());
+}
+
+function renderTable(rows) {
+  const tbody = document.getElementById('tbody');
+  tbody.innerHTML = '';
+  rows.forEach((r) => {
+    const tr = document.createElement('tr');
+    const lightClass = r.risk_level || 'none';
+    tr.innerHTML = `
+      <td><span class="light ${lightClass}">${r.risk_level ? LIGHT_LABEL[r.risk_level] : '—'}</span></td>
+      <td style="font-family:monospace;">${r.id.slice(0, 8)}…</td>
+      <td>${r.name}</td>
+      <td>${r.applied_tool_name || '-'}</td>
+      <td>${r.declared_amount ? r.declared_amount + ' 元' : '-'}</td>
+      <td><span class="status-tag ${r.status}">${STATUS_LABEL[r.status] || r.status}</span></td>
+      <td>${new Date(r.created_at).toLocaleString('zh-TW')}</td>
+      <td><button data-id="${r.id}">查看</button></td>
+    `;
+    tbody.appendChild(tr);
+
+    const detailTr = document.createElement('tr');
+    detailTr.className = 'detail';
+    detailTr.id = `detail-${r.id}`;
+    detailTr.innerHTML = `<td colspan="8" id="detail-content-${r.id}"></td>`;
+    tbody.appendChild(detailTr);
+
+    tr.querySelector('button').addEventListener('click', () => toggleDetail(r.id));
+  });
+}
+
+async function toggleDetail(id) {
+  const row = document.getElementById(`detail-${id}`);
+  const wasOpen = row.classList.contains('open');
+  document.querySelectorAll('.detail.open').forEach((el) => el.classList.remove('open'));
+  if (wasOpen) return;
+
+  const res = await fetch(`/api/admin/applications/${id}`, { headers: { 'x-admin-token': token } });
+  const data = await res.json();
+  const content = document.getElementById(`detail-content-${id}`);
+  content.innerHTML = '';
+
+  // ---------- AI 燈號判定原因 ----------
+  if (data.risk_reasons && data.risk_reasons.length) {
+    const reasonsBox = document.createElement('div');
+    reasonsBox.innerHTML = `<b style="font-size:13px;">AI 判定原因：</b>`;
+    const ul = document.createElement('ul');
+    ul.className = 'reasons';
+    data.risk_reasons.forEach((r) => {
+      const li = document.createElement('li');
+      li.className = r.level;
+      li.textContent = r.text;
+      ul.appendChild(li);
+    });
+    reasonsBox.appendChild(ul);
+    content.appendChild(reasonsBox);
+  } else if (data.risk_level === 'green') {
+    const ok = document.createElement('div');
+    ok.style.cssText = 'font-size:12px; color:#15803d;';
+    ok.textContent = '✅ AI 比對文件與申請資料一致，未發現異常。';
+    content.appendChild(ok);
+  }
+
+  // ---------- 申請人填寫 vs OCR 擷取 對照表 ----------
+  const receiptDoc = data.documents.find((d) => d.doc_type === 'receipt');
+  const idBackDoc = data.documents.find((d) => d.doc_type === 'id_back');
+  const compareTable = document.createElement('table');
+  compareTable.className = 'compare-table';
+  compareTable.innerHTML = `
+    <tr><th></th><th>申請人填寫</th><th>AI 從文件 OCR 擷取</th></tr>
+    <tr><td>工具名稱</td><td>${data.applied_tool_name || '-'}</td><td>${receiptDoc?.ocr_data?.tool_name ?? (receiptDoc?.ocr_status === 'pending' ? '辨識中…' : '無法辨識')}</td></tr>
+    <tr><td>付款金額</td><td>${data.declared_amount ?? '-'}</td><td>${receiptDoc?.ocr_data?.amount ?? (receiptDoc?.ocr_status === 'pending' ? '辨識中…' : '無法辨識')}</td></tr>
+    <tr><td>設籍新竹市</td><td>-</td><td>${idBackDoc?.ocr_data?.is_hsinchu_city === true ? '✅ 是' : idBackDoc?.ocr_data?.is_hsinchu_city === false ? '❌ 否' : (idBackDoc?.ocr_status === 'pending' ? '辨識中…' : '無法辨識')}</td></tr>
+  `;
+  content.appendChild(compareTable);
+
+  // ---------- 文件縮圖（用授權過的路由讀取，不是公開路徑）----------
+  const docsGrid = document.createElement('div');
+  docsGrid.className = 'docs-grid';
+  data.documents.forEach((d) => {
+    const isImg = /\.(jpg|jpeg|png|webp)$/i.test(d.original_name || '');
+    const box = document.createElement('div');
+    box.className = 'doc-box';
+    const fileUrl = `/api/applications/${id}/documents/${d.doc_type}/file`;
+
+    if (isImg) {
+      const img = document.createElement('img');
+      fetch(fileUrl, { headers: { 'x-admin-token': token } }).then((r) => r.blob()).then((blob) => {
+        const url = URL.createObjectURL(blob);
+        img.src = url;
+        img.addEventListener('click', () => window.open(url, '_blank'));
+      });
+      box.appendChild(img);
+    } else {
+      const link = document.createElement('a');
+      link.textContent = '📄 檔案';
+      link.href = '#';
+      link.addEventListener('click', async (e) => {
+        e.preventDefault();
+        const r = await fetch(fileUrl, { headers: { 'x-admin-token': token } });
+        window.open(URL.createObjectURL(await r.blob()), '_blank');
+      });
+      box.appendChild(link);
+    }
+    const label = document.createElement('div');
+    label.className = 'label';
+    label.textContent = d.doc_type;
+    box.appendChild(label);
+    docsGrid.appendChild(box);
+  });
+  content.appendChild(docsGrid);
+
+  // ---------- 狀態與備註更新 ----------
+  const controlsDiv = document.createElement('div');
+  controlsDiv.style.cssText = 'margin-top:14px; display:flex; gap:8px; align-items:center; flex-wrap:wrap;';
+  controlsDiv.innerHTML = `
+    <select id="statusSelect-${id}">
+      ${Object.entries(STATUS_LABEL).map(([k, v]) => `<option value="${k}" ${k === data.status ? 'selected' : ''}>${v}</option>`).join('')}
+    </select>
+    <input id="noteInput-${id}" placeholder="備註（例如退件原因，會一併透過LINE通知申請人）" value="${data.note || ''}" style="flex:1; min-width:220px;" />
+    <button id="saveBtn-${id}">儲存並通知</button>
+  `;
+  content.appendChild(controlsDiv);
+  row.classList.add('open');
+
+  document.getElementById(`saveBtn-${id}`).addEventListener('click', async () => {
+    const status = document.getElementById(`statusSelect-${id}`).value;
+    const note = document.getElementById(`noteInput-${id}`).value;
+    const r = await fetch(`/api/admin/applications/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', 'x-admin-token': token },
+      body: JSON.stringify({ status, note }),
+    });
+    if (r.ok) init(); else alert('更新失敗');
+  });
+}
+
+if (token) init();
+</script>
+</body>
+</html>

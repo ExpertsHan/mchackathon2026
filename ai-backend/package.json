@@ -1,0 +1,19 @@
+{
+  "name": "ai-subsidy-backend",
+  "version": "3.0.0",
+  "private": true,
+  "description": "新竹市 AI 補助申請 - 民眾線上申請/上傳文件 + AI OCR比對 + 規則引擎燈號分流 + 承辦人員後台 + LINE Bot 查詢/推播通知",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "@line/bot-sdk": "^9.4.2",
+    "better-sqlite3": "^11.3.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "multer": "^1.4.5-lts.1",
+    "uuid": "^9.0.1"
+  }
+}

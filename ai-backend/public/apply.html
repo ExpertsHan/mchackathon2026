@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>新竹市 AI 補助線上申請</title>
+<style>
+  :root { --brand:#2563eb; --bg:#f6f7fb; --card:#fff; --border:#e2e5ec; --ok:#16a34a; --err:#dc2626; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; color:#1f2430; }
+  .container { max-width:480px; margin:0 auto; padding:20px 16px 60px; }
+  h1 { font-size:20px; margin:12px 0 4px; }
+  p.sub { color:#6b7280; font-size:13px; margin-top:0; margin-bottom:20px; }
+  .card { background:var(--card); border:1px solid var(--border); border-radius:14px; padding:16px; margin-bottom:14px; }
+  label { display:block; font-size:13px; font-weight:600; margin:12px 0 6px; }
+  input[type=text], input[type=tel], input[type=number] { width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:8px; font-size:14px; }
+  .checkbox-row { display:flex; align-items:center; gap:8px; margin-top:14px; }
+  button { cursor:pointer; border:none; border-radius:10px; font-size:14px; font-weight:600; padding:12px 16px; }
+  .btn-primary { background:var(--brand); color:#fff; width:100%; }
+  .btn-secondary { background:#eef2ff; color:var(--brand); width:100%; }
+  .doc-item { border:1px solid var(--border); border-radius:10px; padding:12px; margin-bottom:10px; }
+  .doc-item .title { font-size:14px; font-weight:600; display:flex; justify-content:space-between; align-items:center; }
+  .doc-item .hint { font-size:12px; color:#6b7280; margin:4px 0 10px; }
+  .status-pill { font-size:12px; padding:2px 8px; border-radius:999px; background:#f3f4f6; color:#6b7280; }
+  .status-pill.done { background:#dcfce7; color:var(--ok); }
+  .status-pill.ocr { background:#e0e7ff; color:#4338ca; }
+  input[type=file] { font-size:13px; }
+  .msg { font-size:13px; margin-top:8px; }
+  .msg.err { color:var(--err); }
+  .app-id { font-family:monospace; font-size:12px; background:#f3f4f6; padding:6px 8px; border-radius:6px; word-break:break-all; }
+  .hidden { display:none !important; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>新竹市 AI 補助線上申請</h1>
+  <p class="sub">請依序完成基本資料填寫與文件上傳，全部上傳完成後才能送出申請。</p>
+
+  <div class="card" id="step1">
+    <label>申請人姓名</label>
+    <input type="text" id="name" placeholder="請輸入本人姓名" />
+
+    <label>聯絡電話</label>
+    <input type="tel" id="phone" placeholder="請輸入手機號碼" />
+
+    <label>身分證字號</label>
+    <input type="text" id="idNumber" maxlength="10" placeholder="A123456789" />
+
+    <label>申請購買的 AI 工具名稱</label>
+    <input type="text" id="toolName" placeholder="例如：ChatGPT Plus、Canva Pro" />
+
+    <label>實際付款金額（新臺幣）</label>
+    <input type="number" id="amount" placeholder="例如：990" />
+
+    <div class="checkbox-row">
+      <input type="checkbox" id="isDisadvantaged" />
+      <label style="margin:0;">我屬於弱勢身分（需另附證明文件）</label>
+    </div>
+
+    <div style="margin-top:16px;">
+      <button class="btn-primary" id="createBtn">建立申請案，開始上傳文件</button>
+    </div>
+    <div class="msg err hidden" id="step1Msg"></div>
+  </div>
+
+  <div class="card hidden" id="step2">
+    <div style="margin-bottom:12px;">
+      <div style="font-size:13px; color:#6b7280;">申請編號</div>
+      <div class="app-id" id="appIdDisplay"></div>
+    </div>
+    <div id="docList"></div>
+    <button class="btn-primary" id="submitBtn" style="margin-top:8px;">確認文件齊全，送出申請</button>
+    <div class="msg hidden" id="step2Msg"></div>
+  </div>
+
+  <div class="card hidden" id="step3">
+    <div style="font-size:16px; font-weight:700; color:var(--ok);">申請已送出 ✅</div>
+    <p style="font-size:13px; color:#4b5563;">您的申請案已成功送出，AI 已自動核對文件內容，承辦人員將盡快審核。您可以隨時回到 LINE 對話視窗輸入「查詢進度」查看目前狀態，狀態變更時也會主動通知您。</p>
+    <div class="app-id" id="finalAppId"></div>
+  </div>
+</div>
+
+<script>
+const params = new URLSearchParams(location.search);
+const lineUserId = params.get('uid') || null;
+
+const DOC_TYPES = [
+  { key: 'id_front', label: '甲、身分證正面', hint: '須能清楚辨識姓名、身分證字號' },
+  { key: 'id_back', label: '甲、身分證反面', hint: '須能清楚辨識住址欄位（設籍新竹市地址）' },
+  { key: 'receipt', label: '乙、購買憑證/發票', hint: '須能清楚辨識工具名稱與金額' },
+  { key: 'passbook', label: '丁、存摺封面影本', hint: '須能清楚辨識戶名與帳號，限申請人本人帳戶' },
+];
+const DISADVANTAGED_DOC = { key: 'disadvantaged_proof', label: '丙、弱勢身分證明', hint: '須能清楚辨識證明文件內容（非弱勢身分者免附）' };
+
+let appId = null;
+let accessToken = null;
+
+const step1 = document.getElementById('step1');
+const step2 = document.getElementById('step2');
+const step3 = document.getElementById('step3');
+const step1Msg = document.getElementById('step1Msg');
+const step2Msg = document.getElementById('step2Msg');
+
+document.getElementById('createBtn').addEventListener('click', async () => {
+  const name = document.getElementById('name').value.trim();
+  const phone = document.getElementById('phone').value.trim();
+  const idNumber = document.getElementById('idNumber').value.trim();
+  const toolName = document.getElementById('toolName').value.trim();
+  const amount = document.getElementById('amount').value.trim();
+  const isDisadvantaged = document.getElementById('isDisadvantaged').checked;
+
+  if (!name || !phone) {
+    step1Msg.textContent = '請填寫姓名與電話';
+    step1Msg.classList.remove('hidden');
+    return;
+  }
+
+  const res = await fetch('/api/applications', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      line_user_id: lineUserId, name, phone,
+      id_number: idNumber,
+      is_disadvantaged: isDisadvantaged,
+      applied_tool_name: toolName,
+      declared_amount: amount,
+    }),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    step1Msg.textContent = data.error || '建立申請案失敗';
+    step1Msg.classList.remove('hidden');
+    return;
+  }
+
+  appId = data.id;
+  accessToken = data.access_token;
+  document.getElementById('appIdDisplay').textContent = appId;
+  renderDocList(isDisadvantaged);
+  step1.classList.add('hidden');
+  step2.classList.remove('hidden');
+});
+
+function renderDocList(isDisadvantaged) {
+  const list = document.getElementById('docList');
+  const docs = isDisadvantaged ? [...DOC_TYPES, DISADVANTAGED_DOC] : DOC_TYPES;
+  list.innerHTML = '';
+  docs.forEach((doc) => {
+    const item = document.createElement('div');
+    item.className = 'doc-item';
+    item.innerHTML = `
+      <div class="title">
+        <span>${doc.label}</span>
+        <span class="status-pill" id="pill-${doc.key}">尚未上傳</span>
+      </div>
+      <div class="hint">${doc.hint}</div>
+      <input type="file" id="file-${doc.key}" accept="image/*,application/pdf" />
+      <button class="btn-secondary" style="margin-top:8px;" data-key="${doc.key}">上傳</button>
+    `;
+    list.appendChild(item);
+  });
+  list.querySelectorAll('button[data-key]').forEach((btn) => {
+    btn.addEventListener('click', () => uploadDoc(btn.dataset.key));
+  });
+}
+
+async function uploadDoc(docType) {
+  const input = document.getElementById(`file-${docType}`);
+  if (!input.files.length) { alert('請先選擇檔案'); return; }
+  const fd = new FormData();
+  fd.append('file', input.files[0]);
+
+  const res = await fetch(`/api/applications/${appId}/documents/${docType}`, {
+    method: 'POST',
+    headers: { 'x-access-token': accessToken },
+    body: fd,
+  });
+  const data = await res.json();
+  if (!res.ok) { alert(data.error || '上傳失敗'); return; }
+
+  const pill = document.getElementById(`pill-${docType}`);
+  pill.textContent = '已上傳';
+  pill.classList.add('done');
+}
+
+document.getElementById('submitBtn').addEventListener('click', async () => {
+  const btn = document.getElementById('submitBtn');
+  btn.disabled = true;
+  btn.textContent = '正在比對文件資料，請稍候…';
+
+  const res = await fetch(`/api/applications/${appId}/submit`, {
+    method: 'POST',
+    headers: { 'x-access-token': accessToken },
+  });
+  const data = await res.json();
+  btn.disabled = false;
+  btn.textContent = '確認文件齊全，送出申請';
+
+  if (!res.ok) {
+    step2Msg.textContent = data.error === '文件尚未齊全' ? `文件尚未齊全：${(data.missing || []).join('、')}` : data.error;
+    step2Msg.classList.remove('hidden');
+    step2Msg.classList.add('err');
+    return;
+  }
+  document.getElementById('finalAppId').textContent = appId;
+  step2.classList.add('hidden');
+  step3.classList.remove('hidden');
+});
+</script>
+</body>
+</html>
