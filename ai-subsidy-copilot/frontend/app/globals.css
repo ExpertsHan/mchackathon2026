@@ -1,0 +1,76 @@
+@import "tailwindcss";
+@config "../tailwind.config.mjs";
+
+:root {
+  --background: #f5f8fa;
+  --foreground: #102a43;
+  --focus: #0b72b9;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  min-height: 100vh;
+  margin: 0;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: #c8eeeb;
+  color: #0b2942;
+}
+
+:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--focus) 35%, transparent);
+  outline-offset: 3px;
+}
+
+button,
+a,
+input,
+select,
+textarea {
+  transition-duration: 150ms;
+  transition-property: color, background-color, border-color, box-shadow, opacity, transform;
+  transition-timing-function: ease-out;
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
+
+.text-balance {
+  text-wrap: balance;
+}
+
+.page-grid {
+  background-image:
+    linear-gradient(rgba(23, 63, 97, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(23, 63, 97, 0.035) 1px, transparent 1px);
+  background-size: 30px 30px;
+}
+
+.scrollbar-subtle {
+  scrollbar-color: #bcccdc transparent;
+  scrollbar-width: thin;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

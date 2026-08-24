@@ -1,0 +1,75 @@
+name: ai-subsidy-copilot
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_DB: ai_subsidy
+      POSTGRES_USER: subsidy
+      POSTGRES_PASSWORD: subsidy
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init-postgres.sql:/docker-entrypoint-initdb.d/01-vector.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U subsidy -d ai_subsidy"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  backend:
+    build:
+      context: ./backend
+    environment:
+      DATABASE_URL: postgresql+psycopg://subsidy:subsidy@postgres:5432/ai_subsidy
+      DEMO_MODE: "${DEMO_MODE:-true}"
+      DEMO_AUTH_SECRET: "${DEMO_AUTH_SECRET:-local-demo-only-change-me}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      OPENAI_MODEL: "${OPENAI_MODEL:-}"
+      OPENAI_EMBEDDING_MODEL: "${OPENAI_EMBEDDING_MODEL:-text-embedding-3-small}"
+      CORS_ORIGINS: http://localhost:3000,http://127.0.0.1:3000
+      RECEIPT_STORAGE_DIR: /app/storage/receipts
+      KNOWLEDGE_DIR: /knowledge
+      DEMO_RECEIPTS_DIR: /demo/receipts
+      MAX_RECEIPT_BYTES: "5242880"
+      MAX_PDF_PAGES: "10"
+      MAX_EXTRACTED_CHARS: "50000"
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./knowledge:/knowledge:ro
+      - ./demo:/demo:ro
+      - receipt_storage:/app/storage/receipts
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=2)",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:8000
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+      NEXT_PUBLIC_DEMO_MODE: "true"
+    ports:
+      - "3000:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  receipt_storage:

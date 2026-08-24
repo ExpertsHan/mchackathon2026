@@ -1,0 +1,8 @@
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.venv/
+*.pyc
+storage/receipts/*
+!storage/receipts/.gitkeep
+
