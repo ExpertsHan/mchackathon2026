@@ -66,3 +66,52 @@
   background-color: #ff4d4f;
   color: white;
 }
+
+/* 【新增】已核准 AI 工具網站上顯示的「立即申請補助」小提示（與 AI Subsidy Copilot demo 串接） */
+#ai-sec-apply-badge {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  z-index: 999998;
+  background: #ffffff;
+  border: 2px solid #10b981;
+  border-radius: 10px;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.18);
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: sans-serif;
+  max-width: 320px;
+}
+
+.ai-sec-apply-text {
+  font-size: 13px;
+  color: #065f46;
+  line-height: 1.4;
+}
+
+.ai-sec-apply-btn {
+  background-color: #10b981;
+  color: white;
+  padding: 6px 12px;
+  border-radius: 6px;
+  text-decoration: none;
+  font-size: 12px;
+  font-weight: bold;
+  white-space: nowrap;
+}
+
+.ai-sec-apply-btn:hover {
+  background-color: #059669;
+}
+
+.ai-sec-apply-close {
+  background: none;
+  border: none;
+  color: #9ca3af;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0 2px;
+  line-height: 1;
+}
