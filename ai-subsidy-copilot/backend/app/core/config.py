@@ -6,6 +6,7 @@ from datetime import date
 from decimal import Decimal
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic import Field, computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -28,8 +29,16 @@ class Settings(BaseSettings):
     database_url: str = f"sqlite:///{BACKEND_ROOT / 'ai_subsidy_demo.db'}"
 
     openai_api_key: str = ""
-    openai_model: str = ""
+    openai_model: str = "gpt-5.6-luna"
     openai_embedding_model: str = ""
+    openai_reasoning_effort: str = "none"
+    openai_timeout_seconds: float = Field(default=20.0, ge=1, le=120)
+    ai_provider: Literal["auto", "openai", "gemini"] = "auto"
+    gemini_api_key: str = ""
+    gemini_model: str = "gemini-3.7-flash"
+    gemini_reasoning_effort: Literal["minimal", "low", "medium", "high"] = "low"
+    agent_max_output_tokens: int = Field(default=600, ge=64, le=4000)
+    agent_max_tool_rounds: int = Field(default=2, ge=1, le=4)
 
     frontend_origin: str = "http://localhost:3000"
     cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
@@ -57,6 +66,37 @@ class Settings(BaseSettings):
     @property
     def openai_configured(self) -> bool:
         return bool(self.openai_api_key and self.openai_model)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def gemini_configured(self) -> bool:
+        return bool(self.gemini_api_key and self.gemini_model)
+
+    @property
+    def active_ai_provider(self) -> Literal["openai", "gemini"] | None:
+        """Select the requested provider, preferring Gemini in automatic mode."""
+
+        if self.ai_provider == "gemini":
+            return "gemini" if self.gemini_configured else None
+        if self.ai_provider == "openai":
+            return "openai" if self.openai_configured else None
+        if self.gemini_configured:
+            return "gemini"
+        if self.openai_configured:
+            return "openai"
+        return None
+
+    @property
+    def ai_configured(self) -> bool:
+        return self.active_ai_provider is not None
+
+    @property
+    def active_ai_model(self) -> str | None:
+        if self.active_ai_provider == "gemini":
+            return self.gemini_model
+        if self.active_ai_provider == "openai":
+            return self.openai_model
+        return None
 
     @property
     def allowed_origins(self) -> list[str]:

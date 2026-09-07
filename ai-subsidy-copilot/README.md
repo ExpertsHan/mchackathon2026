@@ -92,11 +92,11 @@ Markdown policy → chunks → embeddings → pgvector
 citizen question → query embedding → hybrid top-k → answer + structured citations
 ```
 
-When `OPENAI_API_KEY` and `OPENAI_MODEL` are configured, generation uses the official Python SDK and Responses API (`client.responses.create`). Retrieved content is explicitly marked as untrusted evidence. Without a key, deterministic grounded answers cover the demo policy. Unknown questions return “cannot establish” rather than a fabricated policy section.
+Chat generation supports Google AI Studio and OpenAI. In `AI_PROVIDER=auto` mode, a configured `GEMINI_API_KEY` is preferred; otherwise a configured OpenAI key uses the Responses API. Gemini uses Google's OpenAI-compatible Chat Completions endpoint so the existing SDK, server-sent event streaming, sanitized conversation window, and server-executed read-only tools remain shared. Retrieved content is explicitly marked as untrusted evidence. Without a working provider, deterministic grounded answers cover the demo policy. Unknown questions return “cannot establish” rather than a fabricated policy section.
 
-The assistant has narrow application operations such as policy search, status lookup, eligibility evaluation, and submission preparation. It is never given approval, rule-override, audit-deletion, or money-transfer capabilities.
+The model can call only two strict, read-only tools: current-policy search and an owner-scoped application-progress lookup. Eligibility checks, evidence changes, submission, approval, review overrides, and payment remain explicit website/backend actions and are never model tools.
 
-References: [OpenAI Responses API migration guide](https://developers.openai.com/api/docs/guides/migrate-to-responses), [OpenAI embeddings guide](https://developers.openai.com/api/docs/guides/embeddings).
+References: [Gemini OpenAI compatibility](https://ai.google.dev/gemini-api/docs/openai), [Gemini function calling](https://ai.google.dev/gemini-api/docs/function-calling), [OpenAI Responses API migration guide](https://developers.openai.com/api/docs/guides/migrate-to-responses), [OpenAI embeddings guide](https://developers.openai.com/api/docs/guides/embeddings).
 
 ## 7. Safety design
 
@@ -130,7 +130,7 @@ Safety is both product content and an engineering boundary:
 - Next.js, React, TypeScript, Tailwind CSS, and accessible composable UI components
 - Python 3.11+, FastAPI, Pydantic Settings, SQLAlchemy 2, psycopg 3
 - PostgreSQL and pgvector, with SQLite for lightweight offline development/tests
-- Official OpenAI Python SDK using Responses and embeddings APIs when configured
+- Gemini via Google's OpenAI-compatible endpoint, plus native OpenAI Responses/embeddings support
 - pypdf for text PDF extraction, local non-public receipt storage
 - pytest and Ruff; ESLint, TypeScript, and Next production build checks
 - Docker Compose for the full three-service environment
@@ -169,7 +169,7 @@ Then open:
 - Backend health: <http://localhost:8000/health>
 - Interactive API docs: <http://localhost:8000/docs>
 
-In demo mode, backend startup creates the schema, installs the vector extension in PostgreSQL, seeds demo records, and ingests the knowledge corpus idempotently. An OpenAI key is not required.
+In demo mode, backend startup creates the schema, installs the vector extension in PostgreSQL, seeds demo records, and ingests the knowledge corpus idempotently. An external AI key is not required.
 
 ## 12. Environment variables
 
@@ -177,9 +177,17 @@ Copy `.env.example` to `.env`. Do not commit the result.
 
 | Variable | Purpose | Demo behavior when blank |
 | --- | --- | --- |
-| `OPENAI_API_KEY` | Server-side OpenAI credential | AI calls disabled; deterministic fallbacks remain |
-| `OPENAI_MODEL` | Responses model ID | No model generation |
+| `AI_PROVIDER` | `auto`, `gemini`, or `openai` | `auto` prefers Gemini, then OpenAI |
+| `GEMINI_API_KEY` | Server-side Google AI Studio credential | Gemini chat disabled |
+| `GEMINI_MODEL` | Gemini chat model ID | Defaults to `gemini-3.7-flash` |
+| `GEMINI_REASONING_EFFORT` | Gemini reasoning level | `low` for the latency-sensitive demo chat |
+| `OPENAI_API_KEY` | Server-side OpenAI credential | OpenAI chat/optional enhancements disabled |
+| `OPENAI_MODEL` | Responses model ID | Defaults to `gpt-5.6-luna` unless explicitly blank |
 | `OPENAI_EMBEDDING_MODEL` | Embedding model ID | Deterministic vectors if key/model unavailable |
+| `OPENAI_REASONING_EFFORT` | Responses reasoning effort | `none` for the latency-sensitive demo chat |
+| `OPENAI_TIMEOUT_SECONDS` | OpenAI request timeout | 20 seconds |
+| `AGENT_MAX_OUTPUT_TOKENS` | Per-turn output cap | 600 tokens |
+| `AGENT_MAX_TOOL_ROUNDS` | Maximum read-only tool rounds | 2 rounds |
 | `DATABASE_URL` | SQLAlchemy URL | Backend defaults to a local SQLite file |
 | `DEMO_MODE` | Enables seed/reset/mock treasury | Should be `true` for this MVP |
 | `DEMO_AUTH_SECRET` | Signs local demo bearer tokens | Local demo-only value; replace outside this MVP |
@@ -317,7 +325,7 @@ npm run typecheck
 npm run build
 ```
 
-The 49-test backend suite covers adult/under-age/product/duplicate/monthly/safety/cap calculations; invalid state transitions; payment state, amount authority, and idempotency; demo-token ownership and citizen-data redaction; requested-information resubmission; immutable receipt evidence; concurrent claim reservations; file limits and malicious/vision receipt isolation; persisted decision snapshots and citations; sanitized agent-session persistence; repeatable resets; grounded RAG retrieval; and unknown-product phrasing. Tests never require a live OpenAI request.
+The 61-test backend suite covers adult/under-age/product/duplicate/monthly/safety/cap calculations; invalid state transitions; payment state, amount authority, and idempotency; demo-token ownership and citizen-data redaction; requested-information resubmission; immutable receipt evidence; concurrent claim reservations; file limits and malicious/vision receipt isolation; persisted decision snapshots and citations; sanitized agent-session persistence; repeatable resets; grounded RAG retrieval; Gemini/OpenAI agent orchestration; and unknown-product phrasing. Tests never require a live external AI request.
 
 ## 19. API documentation
 
@@ -326,7 +334,7 @@ FastAPI publishes the live OpenAPI schema at <http://localhost:8000/openapi.json
 - `/health`
 - `/api/demo/*`
 - `/api/applications/*` and `/api/users/*/applications`
-- `/api/agent/chat` and `/api/policy/search`
+- `/api/agent/chat`, `/api/agent/chat/stream`, `/api/agent/history`, and `/api/policy/search`
 - `/api/safety/*`
 - `/api/admin/*`
 

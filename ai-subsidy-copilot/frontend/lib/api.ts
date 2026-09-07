@@ -3,6 +3,8 @@ import type {
   AdminApplicationRow,
   AdminStats,
   AgentResponse,
+  AgentHistoryMessage,
+  AgentStreamEvent,
   Application,
   AuditLog,
   DemoUser,
@@ -169,6 +171,91 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   return body as T;
 }
 
+function decodeAgentEvent(block: string): AgentStreamEvent | null {
+  let eventType = "message";
+  const dataLines: string[] = [];
+  for (const line of block.split("\n")) {
+    if (line.startsWith("event:")) eventType = line.slice(6).trim();
+    if (line.startsWith("data:")) dataLines.push(line.slice(5).trimStart());
+  }
+  if (!dataLines.length) return null;
+  const data = JSON.parse(dataLines.join("\n")) as JsonRecord;
+  return { type: eventType, ...data } as AgentStreamEvent;
+}
+
+async function streamAgentChat(
+  payload: { user_id: string; application_id?: string; message: string },
+  onEvent: (event: AgentStreamEvent) => void,
+) {
+  const headers = new Headers({
+    Accept: "text/event-stream",
+    "Content-Type": "application/json",
+  });
+  const demoToken = readDemoToken();
+  if (demoToken) headers.set("Authorization", `Bearer ${demoToken}`);
+
+  let response: Response;
+  try {
+    response = await fetch(`${API_URL}/api/agent/chat/stream`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(payload),
+      cache: "no-store",
+    });
+  } catch {
+    throw new ApiError(
+      "The demo service is unavailable. Start the backend, then try again.",
+      "SERVICE_UNAVAILABLE",
+      503,
+    );
+  }
+  if (!response.ok) {
+    const text = await response.text();
+    let message = text || `Request failed (${response.status}).`;
+    try {
+      const body = JSON.parse(text) as JsonRecord;
+      const error = isRecord(body.error) ? body.error : body;
+      if (typeof error.message === "string") message = error.message;
+    } catch {
+      // Retain the plain-text response.
+    }
+    throw new ApiError(message, "AGENT_STREAM_FAILED", response.status);
+  }
+  if (!response.body) {
+    throw new ApiError("The assistant returned no response stream.", "EMPTY_STREAM", 502);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let terminalEvent = false;
+  while (true) {
+    const { value, done } = await reader.read();
+    buffer += decoder.decode(value, { stream: !done });
+    buffer = buffer.replaceAll("\r\n", "\n");
+    const blocks = buffer.split("\n\n");
+    buffer = blocks.pop() ?? "";
+    for (const block of blocks) {
+      if (!block.trim()) continue;
+      const event = decodeAgentEvent(block);
+      if (!event) continue;
+      onEvent(event);
+      if (event.type === "done" || event.type === "error") terminalEvent = true;
+    }
+    if (done) break;
+  }
+  if (buffer.trim()) {
+    const event = decodeAgentEvent(buffer);
+    if (event) {
+      onEvent(event);
+      if (event.type === "done" || event.type === "error") terminalEvent = true;
+    }
+  }
+  if (!terminalEvent) {
+    throw new ApiError("The assistant stream ended unexpectedly.", "STREAM_INTERRUPTED", 502);
+  }
+}
+
 export const api = {
   async health() {
     return request<{
@@ -176,6 +263,10 @@ export const api = {
       database: string;
       demo_mode: boolean;
       openai_configured: boolean;
+      gemini_configured: boolean;
+      ai_configured: boolean;
+      ai_provider: "openai" | "gemini" | "fallback";
+      ai_model: string | null;
     }>("/health");
   },
 
@@ -278,6 +369,19 @@ export const api = {
       ai_available: response.ai_available ?? response.ai_used,
       state: response.state ?? response.agent_state,
     } satisfies AgentResponse;
+  },
+
+  async streamChat(
+    payload: { user_id: string; application_id?: string; message: string },
+    onEvent: (event: AgentStreamEvent) => void,
+  ) {
+    return streamAgentChat(payload, onEvent);
+  },
+
+  async getAgentHistory(applicationId: string) {
+    return request<{ messages: AgentHistoryMessage[] }>(
+      `/api/agent/history?application_id=${encodeURIComponent(applicationId)}`,
+    );
   },
 
   async searchPolicy(query: string) {

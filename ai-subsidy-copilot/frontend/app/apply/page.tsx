@@ -16,7 +16,7 @@ import { ApplicationSummary } from "@/components/application-summary";
 import { PolicyCitationList } from "@/components/policy-citation";
 import { PRODUCTS } from "@/lib/constants";
 import { api } from "@/lib/api";
-import type { Application, ChatMessageData, EligibilityResult, ProductOption, SafetyProgress, Subscription } from "@/lib/types";
+import type { AgentStreamEvent, Application, ChatMessageData, EligibilityResult, ProductOption, SafetyProgress, Subscription } from "@/lib/types";
 import { cn, getErrorMessage } from "@/lib/utils";
 import { useSession } from "@/contexts/session-context";
 
@@ -48,6 +48,7 @@ export default function ApplyPage() {
   const [quickReplies, setQuickReplies] = useState(initialQuickReplies);
   const [creating, setCreating] = useState(true);
   const [assistantLoading, setAssistantLoading] = useState(false);
+  const [assistantAwaiting, setAssistantAwaiting] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -74,6 +75,14 @@ export default function ApplyPage() {
       }
       hydrateApplication(data);
       if (!data.safety_progress) setSafetyProgress(await api.getSafetyProgress(user.id));
+      try {
+        const history = await api.getAgentHistory(data.public_id);
+        setMessages(history.messages.length
+          ? history.messages.map((item, index) => newMessage(item.role, item.content, { id: `history-${index}-${data.public_id}` }))
+          : [newMessage("assistant", `Hi ${user.name.split(" ")[0]}. I can help you apply for the fictional AI Tool Subsidy.\n\nWhich AI service did you subscribe to?`)]);
+      } catch {
+        setMessages([newMessage("assistant", `Hi ${user.name.split(" ")[0]}. I can help you apply for the fictional AI Tool Subsidy.\n\nWhich AI service did you subscribe to?`)]);
+      }
     } catch (err) { setError(getErrorMessage(err)); }
     finally { setCreating(false); }
   }, [user, activeApplicationId, setActiveApplicationId, hydrateApplication]);
@@ -83,11 +92,6 @@ export default function ApplyPage() {
     if (!user) { router.replace("/login"); return; }
     if (!started.current) { started.current = true; void initialize(); }
   }, [hydrated, user, router, initialize]);
-
-  useEffect(() => {
-    if (!user || messages.length) return;
-    setMessages([newMessage("assistant", `Hi ${user.name.split(" ")[0]}. I can help you apply for the fictional AI Tool Subsidy.\n\nWhich AI service did you subscribe to?`)]);
-  }, [user, messages.length]);
 
   const completeSteps = useMemo(() => {
     const steps: number[] = [];
@@ -106,15 +110,64 @@ export default function ApplyPage() {
   async function sendChat(message: string) {
     if (!user || assistantLoading) return;
     setMessages((current) => [...current, newMessage("user", message)]);
-    setAssistantLoading(true); setQuickReplies([]);
+    setAssistantLoading(true); setAssistantAwaiting(true); setQuickReplies([]);
+    const assistantId = `assistant-stream-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    let assistantStarted = false;
+    let streamFailed = false;
+
+    function updateAssistant(event: AgentStreamEvent) {
+      if (event.type === "delta") {
+        setAssistantAwaiting(false);
+        if (!assistantStarted) {
+          assistantStarted = true;
+          setMessages((current) => [...current, { id: assistantId, role: "assistant", content: event.text }]);
+        } else {
+          setMessages((current) => current.map((item) => item.id === assistantId
+            ? { ...item, content: `${item.content}${event.text}` }
+            : item));
+        }
+      } else if (event.type === "citations") {
+        setMessages((current) => current.map((item) => item.id === assistantId
+          ? { ...item, citations: event.citations }
+          : item));
+      } else if (event.type === "suggested_actions") {
+        setQuickReplies(event.suggested_actions
+          .filter((item) => item.value || item.label)
+          .map((item) => item.value ?? item.label)
+          .slice(0, 4));
+      } else if (event.type === "error") {
+        streamFailed = true;
+        setAssistantAwaiting(false);
+        const interruption = `\n\n${event.message}`;
+        if (assistantStarted) {
+          setMessages((current) => current.map((item) => item.id === assistantId
+            ? { ...item, content: `${item.content}${interruption}`, tone: "warning" }
+            : item));
+        } else {
+          assistantStarted = true;
+          setMessages((current) => [...current, newMessage("assistant", event.message, { id: assistantId, tone: "warning" })]);
+        }
+        setQuickReplies(initialQuickReplies);
+      }
+    }
     try {
-      const response = await api.chat({ user_id: user.id, application_id: application?.public_id, message });
-      setMessages((current) => [...current, newMessage("assistant", response.message, { citations: response.citations })]);
-      setQuickReplies(response.suggested_actions.filter((item) => item.value || item.label).map((item) => item.value ?? item.label).slice(0, 4));
+      await api.streamChat(
+        { user_id: user.id, application_id: application?.public_id, message },
+        updateAssistant,
+      );
     } catch (err) {
-      setMessages((current) => [...current, newMessage("assistant", `The AI assistant is temporarily unavailable. ${getErrorMessage(err)} You can continue with the structured steps beside this chat.`, { tone: "warning" })]);
+      if (!streamFailed) {
+        const failure = `The AI assistant is temporarily unavailable. ${getErrorMessage(err)} You can continue with the structured steps beside this chat.`;
+        if (assistantStarted) {
+          setMessages((current) => current.map((item) => item.id === assistantId
+            ? { ...item, content: `${item.content}\n\n${failure}`, tone: "warning" }
+            : item));
+        } else {
+          setMessages((current) => [...current, newMessage("assistant", failure, { tone: "warning" })]);
+        }
+      }
       setQuickReplies(initialQuickReplies);
-    } finally { setAssistantLoading(false); }
+    } finally { setAssistantLoading(false); setAssistantAwaiting(false); }
   }
 
   async function chooseProduct(product: ProductOption) {
@@ -126,14 +179,14 @@ export default function ApplyPage() {
       setSubscription(nextSubscription);
       setReceiptConfirmed(false); setEligibility(null);
       setMessages((current) => [...current, newMessage("user", product.product)]);
-      setAssistantLoading(true);
+      setAssistantLoading(true); setAssistantAwaiting(true);
       try {
         const response = await api.chat({ user_id: user!.id, application_id: application.public_id, message: `Is ${product.product} eligible under the current program?` });
         setMessages((current) => [...current, newMessage("assistant", response.message, { citations: response.citations })]);
         setQuickReplies(["What should my receipt show?", "How much could I receive?"]);
       } catch (err) {
         setMessages((current) => [...current, newMessage("assistant", `I saved your selection, but policy assistance is temporarily unavailable. ${getErrorMessage(err)} You can continue by uploading your receipt.`, { tone: "warning" })]);
-      } finally { setAssistantLoading(false); }
+      } finally { setAssistantLoading(false); setAssistantAwaiting(false); }
     } catch (err) { setError(getErrorMessage(err)); }
     finally { setActionLoading(null); }
   }
@@ -208,7 +261,7 @@ export default function ApplyPage() {
       ) : null}
 
       <div className="mt-6 grid items-start gap-6 lg:grid-cols-[minmax(0,1.25fr)_minmax(350px,.75fr)]">
-        <ChatWindow messages={messages} loading={assistantLoading}>
+        <ChatWindow messages={messages} loading={assistantLoading && assistantAwaiting}>
           <QuickReplyButtons options={quickReplies} onSelect={(value) => void sendChat(value)} disabled={assistantLoading} />
           <ChatInput onSend={sendChat} disabled={assistantLoading} />
           <p className="mt-2 text-center text-[10px] text-slate-500">AI answers may be wrong. Verify important policy claims using the displayed sources.</p>

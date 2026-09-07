@@ -8,10 +8,20 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.core.config import settings
 from app.core.database import get_db
 from app.main import app
 from app.models import Base
 from app.services.demo import seed_demo_data
+
+
+@pytest.fixture(autouse=True)
+def disable_external_ai(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Never let unit tests consume credentials loaded from a developer's .env."""
+
+    monkeypatch.setattr(settings, "ai_provider", "auto")
+    monkeypatch.setattr(settings, "openai_api_key", "")
+    monkeypatch.setattr(settings, "gemini_api_key", "")
 
 
 @pytest.fixture()

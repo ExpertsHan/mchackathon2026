@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -186,6 +186,15 @@ class AgentChatResponse(BaseModel):
     agent_state: dict[str, Any] = Field(default_factory=dict)
     ai_used: bool = False
     notice: str | None = None
+
+
+class AgentHistoryMessage(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str
+
+
+class AgentHistoryResponse(BaseModel):
+    messages: list[AgentHistoryMessage] = Field(default_factory=list)
 
 
 class MessageResponse(BaseModel):

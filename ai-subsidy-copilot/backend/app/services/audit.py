@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from enum import Enum
 from typing import Any
@@ -71,6 +71,7 @@ def record_audit(
         actor_identifier=actor_identifier[:160],
         action=action[:120],
         details_json=_json_safe(details or {}),
+        created_at=datetime.now(UTC),
     )
     db.add(event_row)
     return event_row

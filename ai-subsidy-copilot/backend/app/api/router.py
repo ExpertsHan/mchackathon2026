@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import json
 import uuid
 
 from fastapi import APIRouter, Depends, File, Query, UploadFile
+from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.agent.graph import chat
+from app.agent.runtime import chat, history, stream_chat_events
 from app.core.auth import (
     get_current_demo_user,
     issue_demo_token,
@@ -37,6 +39,7 @@ from app.schemas.api import (
     AdminStats,
     AgentChatRequest,
     AgentChatResponse,
+    AgentHistoryResponse,
     ApplicationDetail,
     CitizenApplicationDetail,
     CitizenSubscriptionRead,
@@ -313,6 +316,53 @@ def agent_chat(
         user_id=payload.user_id,
         public_id=payload.application_id,
         message=payload.message,
+    )
+
+
+@router.post("/api/agent/chat/stream", tags=["agent"])
+def agent_chat_stream(
+    payload: AgentChatRequest,
+    current_user: User = Depends(get_current_demo_user),
+    db: Session = Depends(get_db),
+) -> StreamingResponse:
+    require_user(current_user, payload.user_id)
+    if payload.application_id:
+        application = get_application_by_public_id(db, payload.application_id)
+        require_application_owner(current_user, application)
+
+    def event_source():
+        for event in stream_chat_events(
+            db,
+            user_id=payload.user_id,
+            public_id=payload.application_id,
+            message=payload.message,
+        ):
+            event_name = str(event["type"])
+            data = {key: value for key, value in event.items() if key != "type"}
+            yield f"event: {event_name}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        event_source(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@router.get(
+    "/api/agent/history",
+    response_model=AgentHistoryResponse,
+    tags=["agent"],
+)
+def agent_history(
+    application_id: str = Query(min_length=1, max_length=32),
+    current_user: User = Depends(get_current_demo_user),
+    db: Session = Depends(get_db),
+) -> AgentHistoryResponse:
+    return AgentHistoryResponse(
+        messages=history(db, user_id=current_user.id, public_id=application_id)
     )
 
 

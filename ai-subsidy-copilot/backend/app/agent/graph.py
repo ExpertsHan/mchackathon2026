@@ -223,7 +223,7 @@ def _save_session(
     db.commit()
 
 
-def chat(
+def deterministic_chat(
     db: Session,
     *,
     user_id: uuid.UUID,
@@ -351,3 +351,23 @@ def chat(
         ai_used=ai_used,
         notice=notice,
     )
+
+
+def load_agent_history(
+    db: Session, *, user_id: uuid.UUID, public_id: str
+) -> list[dict[str, str]]:
+    """Return only the owning citizen's already-sanitized persisted chat history."""
+
+    application = get_application(db, public_id, user_id)
+    session = db.scalar(select(AgentSession).where(AgentSession.application_id == application.id))
+    if session is None:
+        return []
+    return [
+        sanitized
+        for message in (session.messages_json or [])[-MAX_PERSISTED_MESSAGES:]
+        if (sanitized := _sanitize_persisted_message(message)) is not None
+    ]
+
+
+# Backwards-compatible name for modules that explicitly need the deterministic path.
+chat = deterministic_chat

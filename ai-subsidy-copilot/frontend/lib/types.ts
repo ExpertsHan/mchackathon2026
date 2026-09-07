@@ -141,6 +141,24 @@ export interface AgentResponse {
   state?: Record<string, unknown>;
 }
 
+export interface AgentHistoryMessage {
+  role: "assistant" | "user";
+  content: string;
+}
+
+export type AgentStreamEvent =
+  | { type: "start"; request_id: string }
+  | { type: "delta"; text: string }
+  | { type: "citations"; citations: PolicyCitation[] }
+  | { type: "suggested_actions"; suggested_actions: SuggestedAction[] }
+  | {
+      type: "done";
+      agent_state: Record<string, unknown>;
+      ai_used: boolean;
+      notice?: string | null;
+    }
+  | { type: "error"; code: string; message: string; retryable: boolean };
+
 export interface SuggestedAction {
   type: string;
   label: string;

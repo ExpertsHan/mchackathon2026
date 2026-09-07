@@ -88,6 +88,10 @@ def health() -> dict[str, object]:
         "database": database,
         "demo_mode": settings.demo_mode,
         "openai_configured": settings.openai_configured,
+        "gemini_configured": settings.gemini_configured,
+        "ai_configured": settings.ai_configured,
+        "ai_provider": settings.active_ai_provider or "fallback",
+        "ai_model": settings.active_ai_model,
     }
 
 
