@@ -15,6 +15,7 @@ import type {
   SafetyModuleData,
   SafetyProgress,
   Subscription,
+  SourceReview, SourceApplicant, SourceDocumentType,
   TimelineEvent,
 } from "@/lib/types";
 import { readDemoToken } from "@/lib/demo-auth";
@@ -103,6 +104,7 @@ function normalizeApplication(value: unknown): Application {
     safety_progress: normalizeSafetyProgress(detail.safety_progress) ?? application.safety_progress,
     review_reason: typeof reviewerReason === "string" ? reviewerReason : application.review_reason,
     requested_information: typeof informationRequest === "string" ? informationRequest : application.requested_information,
+    source_review: isRecord(detail.source_review) ? detail.source_review as unknown as SourceReview : null,
   };
 }
 
@@ -257,6 +259,10 @@ async function streamAgentChat(
 }
 
 export const api = {
+  async saveSourceData(publicId: string, data: SourceApplicant) { return request<SourceReview>(`/api/applications/${encodeURIComponent(publicId)}/source-data`, { method: "POST", body: JSON.stringify(data) }); },
+  async uploadSourceDocuments(publicId: string, type: SourceDocumentType, files: File[], replace: boolean) { const form = new FormData(); files.forEach(file => form.append("files", file)); return request<SourceReview>(`/api/applications/${encodeURIComponent(publicId)}/documents/${type}?replace=${replace}`, { method: "POST", body: form }); },
+  async analyzeSources(publicId: string) { return request<SourceReview>(`/api/applications/${encodeURIComponent(publicId)}/source-review`, { method: "POST" }); },
+  async downloadSourceDocument(publicId: string, documentId: string, filename: string, reviewer = false) { const token = readDemoToken(); const response = await fetch(`${API_URL}/api/${reviewer ? "admin/" : ""}applications/${encodeURIComponent(publicId)}/documents/${encodeURIComponent(documentId)}/file`, { headers: !reviewer && token ? { Authorization: `Bearer ${token}` } : {}, cache: "no-store" }); if (!response.ok) throw new ApiError("無法讀取原始文件。", "DOCUMENT_UNAVAILABLE", response.status); const url = URL.createObjectURL(await response.blob()); const link = document.createElement("a"); link.href = url; link.download = filename; link.click(); window.setTimeout(() => URL.revokeObjectURL(url), 1000); },
   async health() {
     return request<{
       status: string;

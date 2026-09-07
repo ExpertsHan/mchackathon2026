@@ -15,6 +15,7 @@ from app.models.domain import (
     Subscription,
     User,
 )
+from app.models.source_review import SourceDocument, SourceReview
 
 __all__ = [
     "AgentSession",
@@ -29,6 +30,8 @@ __all__ = [
     "SafetyModule",
     "SafetyProgress",
     "Subscription",
+    "SourceDocument",
+    "SourceReview",
     "User",
     "utcnow",
 ]

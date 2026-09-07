@@ -106,6 +106,7 @@ class CitizenApplicationDetail(BaseModel):
     citations: list[PolicyCitation] = Field(default_factory=list)
     audit_logs: list[CitizenAuditLogRead] = Field(default_factory=list)
     safety_progress: SafetyProgressResponse | None = None
+    source_review: dict[str, Any] | None = None
 
 
 class ApplicationDetail(BaseModel):
@@ -117,6 +118,7 @@ class ApplicationDetail(BaseModel):
     citations: list[PolicyCitation] = Field(default_factory=list)
     audit_logs: list[AuditLogRead] = Field(default_factory=list)
     safety_progress: SafetyProgressResponse | None = None
+    source_review: dict[str, Any] | None = None
 
 
 class TimelineEvent(BaseModel):

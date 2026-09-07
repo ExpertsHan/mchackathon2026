@@ -114,7 +114,13 @@ export interface Application {
   rejected_at?: string | null;
   created_at: string;
   updated_at?: string | null;
+  source_review?: SourceReview | null;
 }
+
+export type SourceDocumentType = "receipt" | "id_card" | "passbook" | "declaration" | "cultural_proof" | "payer_declaration";
+export interface SourceApplicant { birth_date?: string | null; household_address?: string | null; applicant_type?: "normal" | "special" | "language"; payment_type?: "monthly" | "annual"; software_category?: "general" | "image" | "office" | "learning" | "other"; purchase_date?: string | null; declared_amount?: number | null; is_own_credit_card?: boolean; }
+export interface SourceRule { id: string; name: string; condition: string; data_source: string; ocr_field: string | null; confidence: number | null; status: string; result: string | null; reason: string; disposition: string; }
+export interface SourceReview { applicant_data: SourceApplicant; documents: Array<{ id: string; document_type: SourceDocumentType; filename: string; content_type: string; size_bytes: number; ocr_status: string; active: boolean; created_at: string; ocr_data?: Record<string, unknown>; sha256?: string; }>; evaluation: { result: string; error?: string; policy_notice: string; evaluated_at: string; documents_required: boolean; rules?: SourceRule[]; cross_validation?: Array<{ check: string; label: string; a_source: string; a_value: unknown; b_source: string; b_value: unknown; result: string }>; applicant_data?: Record<string, unknown>; ocr_data?: Record<string, unknown>; knowledge_base_data?: Record<string, unknown>; confidence_sources?: { ocr: Record<string, number | null>; knowledge_base: number; rule_engine: number; note: string }; subsidy?: { subsidy_amount: number | null; eligible_amount: number | null; subsidy_rate: number | null; subsidy_cap: number | null; source: string | null; unknown: boolean }; supplement_center?: { items: Array<{ rule_id: string; missing_item: string; reason: string }>; deadline?: string }; }; }
 
 export interface TimelineEvent {
   key?: string;

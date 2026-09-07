@@ -33,6 +33,7 @@ from app.schemas.policy import PolicyCitation
 from app.services.applications import get_application_by_public_id
 from app.services.eligibility import evaluate_application
 from app.services.safety import get_safety_progress
+from app.services.source_review import review_payload
 
 TIMELINE_LABELS = {
     "APPLICATION_CREATED": "Application created",
@@ -161,6 +162,7 @@ def application_detail(db: Session, public_id: str) -> ApplicationDetail:
         citations=citations,
         audit_logs=[AuditLogRead.model_validate(item) for item in audit_logs],
         safety_progress=get_safety_progress(db, application.user_id),
+        source_review=review_payload(db, application, citizen=False),
     )
 
 
@@ -193,6 +195,7 @@ def citizen_application_detail(db: Session, public_id: str) -> CitizenApplicatio
             for item in audit_logs
         ],
         safety_progress=get_safety_progress(db, application.user_id),
+        source_review=review_payload(db, application, citizen=True),
     )
 
 

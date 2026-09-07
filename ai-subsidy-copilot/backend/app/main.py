@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
 from app.api.router import router
+from app.api.source_review import router as source_review_router
 from app.core.config import settings
 from app.core.database import SessionLocal, init_db
 from app.core.errors import DomainError
@@ -92,7 +93,10 @@ def health() -> dict[str, object]:
         "ai_configured": settings.ai_configured,
         "ai_provider": settings.active_ai_provider or "fallback",
         "ai_model": settings.active_ai_model,
+        "gemini_ocr_configured": bool(settings.gemini_api_key.strip()),
+        "ocr_module_available": (settings.ocr_module_dir / "copilot-bridge.js").is_file(),
     }
 
 
 app.include_router(router)
+app.include_router(source_review_router)

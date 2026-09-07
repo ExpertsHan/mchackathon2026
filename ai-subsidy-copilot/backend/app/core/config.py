@@ -39,6 +39,11 @@ class Settings(BaseSettings):
     gemini_reasoning_effort: Literal["minimal", "low", "medium", "high"] = "low"
     agent_max_output_tokens: int = Field(default=600, ge=64, le=4000)
     agent_max_tool_rounds: int = Field(default=2, ge=1, le=4)
+    gemini_ocr_model: str = "gemini-2.5-flash"
+    ocr_module_dir: Path = BACKEND_ROOT.parent.parent / "OCR"
+    ocr_node_binary: str = "node"
+    ocr_timeout_seconds: int = Field(default=55, ge=5, le=120)
+    max_source_documents: int = Field(default=30, ge=1, le=100)
 
     frontend_origin: str = "http://localhost:3000"
     cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
