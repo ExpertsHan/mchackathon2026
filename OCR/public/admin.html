@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>後台審核 - AI 補助申請</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; background:#f6f7fb; color:#1f2430; }
+  .container { max-width:1280px; margin:0 auto; padding:24px 16px 60px; }
+  h1 { font-size:20px; }
+  h2.section-title { font-size:14px; margin:0 0 8px; color:#374151; }
+  p.sub { color:#6b7280; font-size:13px; }
+  table { width:100%; border-collapse:collapse; background:#fff; border-radius:10px; overflow:hidden; }
+  th, td { text-align:left; padding:10px 12px; font-size:13px; border-bottom:1px solid #eee; vertical-align:top; }
+  th { background:#f3f4f6; }
+  .light { display:inline-flex; align-items:center; gap:6px; font-size:12px; font-weight:600; padding:3px 10px; border-radius:999px; white-space:nowrap; }
+  .light.PASS { background:#dcfce7; color:#15803d; }
+  .light.REVIEW { background:#e0e7ff; color:#4338ca; }
+  .light.NEED_SUPPLEMENT { background:#fef3c7; color:#b45309; }
+  .light.REJECT { background:#fee2e2; color:#b91c1c; }
+  .light.FRAUD_RISK { background:#1f2430; color:#fca5a5; font-weight:700; }
+  .light.none { background:#f3f4f6; color:#9ca3af; }
+  .status-tag { padding:2px 8px; border-radius:999px; font-size:12px; background:#f3f4f6; white-space:nowrap; }
+  .status-tag.reviewing { background:#fef3c7; color:#b45309; }
+  .status-tag.need_supplement { background:#fee2e2; color:#b91c1c; }
+  .status-tag.approved { background:#dcfce7; color:#15803d; }
+  .status-tag.disbursed { background:#dbeafe; color:#1e40af; }
+  .status-tag.rejected { background:#f3f4f6; color:#6b7280; }
+  .status-tag.cancelled { background:#f3f4f6; color:#9ca3af; text-decoration:line-through; }
+  .status-tag.submitted { background:#e0e7ff; color:#4338ca; }
+  .status-tag.draft { background:#f3f4f6; color:#9ca3af; }
+  .filters { display:flex; flex-wrap:wrap; gap:16px; align-items:center; background:#fff; border:1px solid #eee; border-radius:10px; padding:10px 12px; margin-bottom:12px; }
+  .filter-group { display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+  .filter-group .filter-label { font-size:12px; color:#6b7280; margin-right:2px; }
+  .filter-btn { cursor:pointer; background:#f3f4f6; color:#374151; border:1px solid #e5e7eb; border-radius:999px; padding:4px 12px; font-size:12px; }
+  .filter-btn.active { background:#2563eb; color:#fff; border-color:#2563eb; }
+  select, textarea, button, input { font-size:13px; padding:6px 8px; border-radius:6px; border:1px solid #ddd; }
+  button { cursor:pointer; background:#2563eb; color:#fff; border:none; }
+  button.secondary { background:#fff; color:#2563eb; border:1px solid #2563eb; }
+  .login { max-width:320px; margin:80px auto; text-align:center; }
+  .login input { width:100%; margin:10px 0; }
+  .detail { display:none; background:#fafafa; }
+  .detail.open { display:table-row; }
+  .rule-list { list-style:none; margin:8px 0; padding:0; font-size:12px; }
+  .rule-list li { margin-bottom:8px; padding-left:2px; }
+  .rule-list .rid { font-family:monospace; color:#9ca3af; margin-right:4px; }
+  .rule-lineage { color:#9ca3af; font-size:11px; margin:2px 0 0 18px; overflow-wrap:anywhere; word-break:break-word; }
+  .docs-grid { display:flex; flex-wrap:wrap; gap:10px; margin-top:8px; }
+  .doc-box { text-align:center; }
+  .doc-box img { width:100px; height:100px; object-fit:cover; border-radius:6px; border:1px solid #ddd; cursor:pointer; }
+  .doc-box .label { font-size:11px; color:#6b7280; margin-top:2px; }
+  .cv-table, .compare-table { font-size:12px; margin-top:6px; border-collapse:collapse; width:100%; table-layout:fixed; }
+  .cv-table td, .cv-table th, .compare-table td, .compare-table th { padding:4px 8px; border:1px solid #eee; overflow-wrap:anywhere; word-break:break-word; }
+  .cv-badge { padding:1px 8px; border-radius:999px; font-size:11px; font-weight:600; }
+  .cv-badge.MATCH { background:#dcfce7; color:#15803d; }
+  .cv-badge.PARTIAL_MATCH { background:#fef3c7; color:#b45309; }
+  .cv-badge.MISMATCH { background:#fee2e2; color:#b91c1c; }
+  .cv-badge.UNKNOWN { background:#f3f4f6; color:#9ca3af; }
+  .quick-actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
+  .quick-actions button { padding:6px 14px; }
+  .box { font-size:12px; background:#fff; border:1px solid #eee; border-radius:8px; padding:10px 12px; margin-top:8px; overflow-wrap:anywhere; word-break:break-word; }
+  .detail-columns { display:flex; gap:14px; flex-wrap:wrap; align-items:flex-start; }
+  .detail-col-left { flex:1 1 260px; min-width:240px; }
+  .detail-col-mid { flex:1 1 300px; min-width:260px; }
+  .detail-col-right { flex:2 1 420px; min-width:340px; }
+  .timeline { list-style:none; margin:6px 0; padding:0; font-size:12px; border-left:2px solid #e5e7eb; }
+  .timeline li { position:relative; padding:4px 0 4px 14px; }
+  .timeline li::before { content:''; position:absolute; left:-5px; top:9px; width:8px; height:8px; border-radius:50%; background:#2563eb; }
+  .timeline .ts { color:#9ca3af; margin-right:6px; }
+  .dashboard { display:grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap:10px; margin-bottom:16px; }
+  .stat-card { background:#fff; border:1px solid #eee; border-radius:10px; padding:14px; text-align:center; }
+  .stat-card .num { font-size:24px; font-weight:700; color:#2563eb; }
+  .stat-card .label { font-size:12px; color:#6b7280; margin-top:4px; }
+  .stat-card.highlight .num { color:#15803d; }
+  .stat-note { font-size:11px; color:#9ca3af; margin-top:-8px; margin-bottom:16px; }
+</style>
+</head>
+<body>
+<div id="loginBox" class="container login">
+  <h1>後台登入</h1>
+  <input type="password" id="tokenInput" placeholder="輸入 Admin Token" />
+  <button id="loginBtn" style="width:100%;">登入</button>
+</div>
+
+<div id="app" class="container" style="display:none;">
+  <h1>AI 補助申請 - 智慧審核後台</h1>
+  <p class="sub">AI 只負責讀取、比對、找問題、給建議（PASS/NEED_SUPPLEMENT/REVIEW/REJECT/FRAUD_RISK），不會自動核准或退件。除了「NEED_SUPPLEMENT」會自動轉為需補件並 LINE 通知申請人之外，其餘建議都只是標記在案件上，最終審核／核定／核銷／撥款一律由承辦人員決定並留下紀錄。</p>
+
+  <h2 class="section-title">AI 幫市府處理了什麼</h2>
+  <div class="dashboard" id="dashboard"></div>
+  <div class="stat-note" id="dashboardNote"></div>
+
+  <div class="filters">
+    <div class="filter-group">
+      <span class="filter-label">AI建議：</span>
+      <button class="filter-btn active" data-filter-light="all">全部</button>
+      <button class="filter-btn" data-filter-light="PASS">✅ PASS</button>
+      <button class="filter-btn" data-filter-light="REVIEW">🔍 REVIEW</button>
+      <button class="filter-btn" data-filter-light="NEED_SUPPLEMENT">📋 需補件</button>
+      <button class="filter-btn" data-filter-light="REJECT">❌ REJECT</button>
+      <button class="filter-btn" data-filter-light="FRAUD_RISK">🚨 FRAUD_RISK</button>
+    </div>
+    <div class="filter-group">
+      <span class="filter-label">審核狀態：</span>
+      <button class="filter-btn active" data-filter-review="all">全部</button>
+      <button class="filter-btn" data-filter-review="pending">未審核</button>
+      <button class="filter-btn" data-filter-review="reviewed">已審核</button>
+    </div>
+  </div>
+
+  <table>
+    <thead>
+      <tr><th>AI建議</th><th>受理編號</th><th>姓名</th><th>申請工具</th><th>試算補助</th><th>狀態</th><th>建立時間</th><th></th></tr>
+    </thead>
+    <tbody id="tbody"></tbody>
+  </table>
+</div>
+
+<script>
+let token = localStorage.getItem('adminToken') || '';
+let allRows = [];
+let lightFilter = 'all';
+let reviewFilter = 'all';
+
+const STATUS_LABEL = {
+  draft: '草稿', submitted: '已送出', reviewing: '審核中',
+  need_supplement: '需補件', approved: '已核准', disbursed: '已撥款', rejected: '不通過', cancelled: '已取消',
+};
+const LEGACY_RISK_TO_RESULT = { green: 'PASS', yellow: 'REVIEW', red: 'REJECT' };
+const AI_RESULT_LABEL = { PASS: '✅ PASS', REVIEW: '🔍 REVIEW', NEED_SUPPLEMENT: '📋 需補件', REJECT: '❌ REJECT', FRAUD_RISK: '🚨 FRAUD_RISK' };
+const APPLICANT_CATEGORY_LABEL = { normal: '一般青年', general: '一般青年', special: '特定對象', special_cultural: '特定對象/文化語言保存者', language: '文化語言保存者' };
+const DOC_TYPE_LABEL = {
+  id_card: '身分證正反面照片', receipt: '購買憑證/發票', cultural_proof: '特定對象/語言認證證明文件',
+  passbook: '存摺封面影本', declaration: '切結書', payer_declaration: '父母、配偶或法定代理人代為支付切結書',
+};
+const EVENT_ICON = {
+  submitted: '📨', supplemented: '📨', ocr_done: '🔎', ai_reviewed: '🤖', issues_found: '⚠️',
+  supplement_notified: '📮', admin_decision: '🧑‍💼', cancelled: '🚫',
+};
+// 未審核＝申請人剛送出、承辦人員還沒開始處理；已審核＝承辦人員已經動過這筆案件的狀態
+const PENDING_REVIEW_STATUSES = ['submitted', 'reviewing'];
+
+document.getElementById('loginBtn').addEventListener('click', () => {
+  token = document.getElementById('tokenInput').value.trim();
+  localStorage.setItem('adminToken', token);
+  init();
+});
+
+document.querySelectorAll('[data-filter-light]').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    lightFilter = btn.dataset.filterLight;
+    document.querySelectorAll('[data-filter-light]').forEach((b) => b.classList.toggle('active', b === btn));
+    renderTable(allRows);
+  });
+});
+document.querySelectorAll('[data-filter-review]').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    reviewFilter = btn.dataset.filterReview;
+    document.querySelectorAll('[data-filter-review]').forEach((b) => b.classList.toggle('active', b === btn));
+    renderTable(allRows);
+  });
+});
+
+async function init() {
+  const res = await fetch('/api/admin/applications', { headers: { 'x-admin-token': token } });
+  if (!res.ok) { alert('Token 錯誤或未授權'); return; }
+  document.getElementById('loginBox').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+  allRows = await res.json();
+  renderTable(allRows);
+  loadDashboard();
+}
+
+async function loadDashboard() {
+  const res = await fetch('/api/admin/dashboard', { headers: { 'x-admin-token': token } });
+  if (!res.ok) return;
+  const d = await res.json();
+  const cards = [
+    { num: d.documents_ocr_processed, label: 'AI 自動讀取文件數' },
+    { num: d.ocr_fields_extracted, label: 'OCR 擷取欄位數' },
+    { num: `${d.rules_auto_passed}/${d.rules_total_checked}`, label: '自動通過規則數' },
+    { num: d.issues_found, label: '發現異常/待確認項目' },
+    { num: d.supplement_notifications_sent, label: '自動產生補件通知' },
+    { num: d.applications_needing_human_review, label: '待人工處理案件' },
+    { num: d.applications_submitted, label: '已送出申請案件' },
+    { num: `${Math.round(d.estimated_minutes_saved / 60 * 10) / 10} 小時`, label: '預估節省審核時間', highlight: true },
+  ];
+  document.getElementById('dashboard').innerHTML = cards.map((c) => `
+    <div class="stat-card ${c.highlight ? 'highlight' : ''}">
+      <div class="num">${c.num}</div>
+      <div class="label">${c.label}</div>
+    </div>
+  `).join('');
+  document.getElementById('dashboardNote').textContent = `＊${d.assumption_note}`;
+}
+
+function resultOf(r) {
+  return r.ai_result || LEGACY_RISK_TO_RESULT[r.risk_level] || null;
+}
+
+function passesFilters(r) {
+  if (lightFilter !== 'all' && resultOf(r) !== lightFilter) return false;
+  const isPending = PENDING_REVIEW_STATUSES.includes(r.status);
+  if (reviewFilter === 'pending' && !isPending) return false;
+  if (reviewFilter === 'reviewed' && (isPending || r.status === 'draft')) return false;
+  return true;
+}
+
+function renderTable(rows) {
+  const tbody = document.getElementById('tbody');
+  tbody.innerHTML = '';
+  rows.filter(passesFilters).forEach((r) => {
+    const tr = document.createElement('tr');
+    const result = resultOf(r);
+    tr.innerHTML = `
+      <td><span class="light ${result || 'none'}">${result ? AI_RESULT_LABEL[result] : '—'}</span></td>
+      <td style="font-family:monospace;">${r.id}</td>
+      <td>${r.name}</td>
+      <td>${r.applied_tool_name || '-'}</td>
+      <td>${r.subsidy_amount != null ? r.subsidy_amount + ' 元' : (r.status === 'draft' ? '-' : 'UNKNOWN')}</td>
+      <td><span class="status-tag ${r.status}">${STATUS_LABEL[r.status] || r.status}</span></td>
+      <td>${new Date(r.created_at).toLocaleString('zh-TW')}</td>
+      <td><button data-id="${r.id}">查看</button></td>
+    `;
+    tbody.appendChild(tr);
+
+    const detailTr = document.createElement('tr');
+    detailTr.className = 'detail';
+    detailTr.id = `detail-${r.id}`;
+    detailTr.innerHTML = `<td colspan="8" id="detail-content-${r.id}"></td>`;
+    tbody.appendChild(detailTr);
+
+    tr.querySelector('button').addEventListener('click', () => toggleDetail(r.id));
+  });
+}
+
+function cvBadge(result) {
+  return `<span class="cv-badge ${result}">${result}</span>`;
+}
+
+async function toggleDetail(id) {
+  const row = document.getElementById(`detail-${id}`);
+  const wasOpen = row.classList.contains('open');
+  document.querySelectorAll('.detail.open').forEach((el) => el.classList.remove('open'));
+  if (wasOpen) return;
+
+  const res = await fetch(`/api/admin/applications/${id}`, { headers: { 'x-admin-token': token } });
+  const data = await res.json();
+  const content = document.getElementById(`detail-content-${id}`);
+  content.innerHTML = '';
+
+  const evalData = data.ai_evaluation; // 新版完整結構（四種資料來源分開）；舊資料沒有這欄位時會是 null，下面會 fallback
+
+  const columns = document.createElement('div');
+  columns.className = 'detail-columns';
+  content.appendChild(columns);
+
+  // ================= 左欄：申請人填寫資料 + AI建議 + 補助試算 + 審核操作 =================
+  const leftCol = document.createElement('div');
+  leftCol.className = 'detail-col-left';
+  columns.appendChild(leftCol);
+
+  const result = data.ai_result || LEGACY_RISK_TO_RESULT[data.risk_level] || null;
+  if (result) {
+    const resultBox = document.createElement('div');
+    resultBox.innerHTML = `<span class="light ${result}" style="font-size:13px; padding:5px 14px;">AI 建議：${AI_RESULT_LABEL[result]}</span>`;
+    leftCol.appendChild(resultBox);
+  }
+
+  const CATEGORY_LABEL = { general: '通用型', image: '影像類', office: '辦公類', learning: '學習類', other: '其他類' };
+  const CURRENCY_LABEL = { TWD: '新臺幣', USD: '美金', JPY: '日圓', EUR: '歐元', AUD: '澳幣', HKD: '港幣', other: '其他' };
+  const infoBox = document.createElement('div');
+  infoBox.className = 'box';
+  infoBox.style.lineHeight = '1.8';
+  infoBox.innerHTML = `
+    <h2 class="section-title" style="margin-top:0;">📝 申請人填寫資料</h2>
+    <b>${data.name || '-'}</b>／${data.phone || '-'}／${data.id_number || '-'}<br/>
+    出生日期：${data.birth_date || '-'}／Email：${data.email || '-'}<br/>
+    戶籍地址：${data.household_address || '-'}<br/>
+    通訊地址：${data.mailing_address || '-'}<br/>
+    申請身分：${APPLICANT_CATEGORY_LABEL[data.applicant_type] || data.applicant_type}${data.applicant_subtype ? `（${data.applicant_subtype}）` : ''}<br/>
+    軟體：${data.software_company || '-'}／${CATEGORY_LABEL[data.software_category] || data.software_category || '-'}<br/>
+    ${data.payment_type === 'annual' ? '年費制' : data.payment_type === 'monthly' ? '月費制' : '-'}／購買日期：${data.purchase_date || '-'}<br/>
+    付款：${data.is_own_credit_card ? '本人信用卡' : '父母、配偶或法定代理人付費'}<br/>
+    原始費用：${data.original_amount ?? '-'} ${CURRENCY_LABEL[data.original_currency] || data.original_currency || ''}／自填換算：${data.declared_amount ?? '-'} 元
+  `;
+  leftCol.appendChild(infoBox);
+
+  const subsidy = evalData?.subsidy;
+  const subsidyBox = document.createElement('div');
+  subsidyBox.className = 'box';
+  subsidyBox.style.background = '#eef2ff';
+  subsidyBox.style.borderColor = '#c7d2fe';
+  if (subsidy && subsidy.unknown) {
+    subsidyBox.innerHTML = `<h2 class="section-title" style="margin-top:0;">💰 補助金額試算</h2><b style="color:#b45309;">UNKNOWN</b>（無法確認可採信購買金額，不會算成0元，需補件或人工確認）`;
+  } else if (data.subsidy_amount != null) {
+    subsidyBox.innerHTML = `<h2 class="section-title" style="margin-top:0;">💰 補助金額試算</h2>可採信金額 ${data.subsidy_eligible_amount ?? '-'} 元 × 費率 ${data.subsidy_rate != null ? Math.round(data.subsidy_rate * 100) + '%' : '-'} = <b>補助 ${data.subsidy_amount} 元</b>（上限 ${data.subsidy_cap ?? '-'} 元）${subsidy ? `<br/><span style="color:#6b7280;">金額來源：${subsidy.source === 'ocr_receipt' ? '憑證OCR' : '申請人自填'}</span>` : ''}`;
+  } else {
+    subsidyBox.innerHTML = `<h2 class="section-title" style="margin-top:0;">💰 補助金額試算</h2>尚未送出審核`;
+  }
+  leftCol.appendChild(subsidyBox);
+
+  if (evalData?.confidence_sources) {
+    const cs = evalData.confidence_sources;
+    const confBox = document.createElement('div');
+    confBox.className = 'box';
+    confBox.innerHTML = `
+      <h2 class="section-title" style="margin-top:0;">📊 資料可信度</h2>
+      OCR：發票${cs.ocr.receipt ?? '-'}／身分證${cs.ocr.id_card ?? '-'}／存摺${cs.ocr.passbook ?? '-'}<br/>
+      知識庫：${cs.knowledge_base}　規則引擎：${cs.rule_engine}<br/>
+      <span style="color:#9ca3af;">＊${cs.note}</span>
+    `;
+    leftCol.appendChild(confBox);
+  }
+
+  // 審核操作：通過／補件／退件／人工查核，會記錄承辦人姓名＋理由到審核時間軸
+  const controlsBox = document.createElement('div');
+  controlsBox.className = 'box';
+  const savedReviewer = localStorage.getItem('reviewerName') || '';
+  controlsBox.innerHTML = `
+    <h2 class="section-title" style="margin-top:0;">🧑‍💼 承辦人複核</h2>
+    <input id="reviewerInput-${id}" placeholder="承辦人姓名" value="${savedReviewer}" style="width:100%; margin-bottom:6px;" />
+    <input id="reasonInput-${id}" placeholder="理由/備註（會一併透過LINE通知申請人）" value="${data.note || ''}" style="width:100%; margin-bottom:6px;" />
+    <select id="statusSelect-${id}" style="width:100%; margin-bottom:6px;">
+      ${Object.entries(STATUS_LABEL).map(([k, v]) => `<option value="${k}" ${k === data.status ? 'selected' : ''}>${v}</option>`).join('')}
+    </select>
+    <button id="saveBtn-${id}" style="width:100%;">依上方下拉選單儲存</button>
+    <div class="quick-actions">
+      <button data-quick="approved">✅ 通過</button>
+      <button class="secondary" data-quick="need_supplement">📋 補件</button>
+      <button class="secondary" data-quick="rejected">❌ 退件</button>
+      <button class="secondary" data-quick="reviewing">🔍 需要進一步查核</button>
+    </div>
+  `;
+  leftCol.appendChild(controlsBox);
+
+  async function saveDecision(status) {
+    const reviewedBy = document.getElementById(`reviewerInput-${id}`).value.trim();
+    const reason = document.getElementById(`reasonInput-${id}`).value.trim();
+    if (reviewedBy) localStorage.setItem('reviewerName', reviewedBy);
+    const r = await fetch(`/api/admin/applications/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', 'x-admin-token': token },
+      body: JSON.stringify({ status, note: reason, reviewed_by: reviewedBy, reason }),
+    });
+    if (r.ok) { init(); } else alert('更新失敗');
+  }
+  controlsBox.querySelectorAll('[data-quick]').forEach((btn) => btn.addEventListener('click', () => saveDecision(btn.dataset.quick)));
+  controlsBox.querySelector(`#saveBtn-${id}`).addEventListener('click', () => saveDecision(document.getElementById(`statusSelect-${id}`).value));
+
+  // ================= 中欄：原始文件縮圖 + 審核時間軸 =================
+  const midCol = document.createElement('div');
+  midCol.className = 'detail-col-mid';
+  columns.appendChild(midCol);
+
+  const docsBox = document.createElement('div');
+  docsBox.className = 'box';
+  docsBox.innerHTML = `<h2 class="section-title" style="margin-top:0;">📎 原始文件</h2>`;
+  const docsGrid = document.createElement('div');
+  docsGrid.className = 'docs-grid';
+  data.documents.forEach((d) => {
+    const isImg = /\.(jpg|jpeg|png|webp)$/i.test(d.original_name || '');
+    const box = document.createElement('div');
+    box.className = 'doc-box';
+    const fileUrl = `/api/applications/${id}/documents/${d.doc_type}/file/${d.id}`;
+    if (isImg) {
+      const img = document.createElement('img');
+      fetch(fileUrl, { headers: { 'x-admin-token': token } }).then((r) => r.blob()).then((blob) => {
+        const url = URL.createObjectURL(blob);
+        img.src = url;
+        img.addEventListener('click', () => window.open(url, '_blank'));
+      });
+      box.appendChild(img);
+    } else {
+      const link = document.createElement('a');
+      link.textContent = '📄 檔案';
+      link.href = '#';
+      link.addEventListener('click', async (e) => {
+        e.preventDefault();
+        const r = await fetch(fileUrl, { headers: { 'x-admin-token': token } });
+        window.open(URL.createObjectURL(await r.blob()), '_blank');
+      });
+      box.appendChild(link);
+    }
+    const label = document.createElement('div');
+    label.className = 'label';
+    label.textContent = DOC_TYPE_LABEL[d.doc_type] || d.doc_type;
+    box.appendChild(label);
+    docsGrid.appendChild(box);
+  });
+  docsBox.appendChild(docsGrid);
+  midCol.appendChild(docsBox);
+
+  if (evalData?.supplement_center?.items?.length) {
+    const supBox = document.createElement('div');
+    supBox.className = 'box';
+    supBox.style.background = '#fffbeb';
+    supBox.style.borderColor = '#fde68a';
+    supBox.innerHTML = `
+      <h2 class="section-title" style="margin-top:0;">📮 補件中心</h2>
+      <ul style="margin:4px 0; padding-left:18px;">
+        ${evalData.supplement_center.items.map((it) => `<li>[${it.rule_id}] ${it.missing_item}：${it.reason}</li>`).join('')}
+      </ul>
+      補件期限：${evalData.supplement_center.deadline}
+    `;
+    midCol.appendChild(supBox);
+  }
+
+  if (data.timeline && data.timeline.length) {
+    const tlBox = document.createElement('div');
+    tlBox.className = 'box';
+    tlBox.innerHTML = `<h2 class="section-title" style="margin-top:0;">🕒 審核時間軸</h2>`;
+    const ul = document.createElement('ul');
+    ul.className = 'timeline';
+    ul.innerHTML = data.timeline.map((e) => `
+      <li><span class="ts">${new Date(e.created_at).toLocaleString('zh-TW', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
+        ${EVENT_ICON[e.event_type] || '•'} ${e.description}${e.actor ? `（${e.actor}）` : ''}</li>
+    `).join('');
+    tlBox.appendChild(ul);
+    midCol.appendChild(tlBox);
+  }
+
+  // ================= 右欄：AI OCR + 規則結果 =================
+  const rightCol = document.createElement('div');
+  rightCol.className = 'detail-col-right';
+  columns.appendChild(rightCol);
+
+  const rules = evalData?.rules || data.rule_results || [];
+  if (rules.length) {
+    const rulesBox = document.createElement('div');
+    rulesBox.className = 'box';
+    const iconFor = (status) => (status === 'pass' ? '✓' : status === 'fail' ? '✗' : '⚠');
+    const colorFor = (risk) => ({ info: '#15803d', low: '#b45309', medium: '#b45309', high: '#b91c1c' }[risk] || '#6b7280');
+    rulesBox.innerHTML = `<h2 class="section-title" style="margin-top:0;">📋 規則檢查（RULE-001~020）</h2>` +
+      `<ul class="rule-list">` +
+      rules.map((r) => `
+        <li style="color:${colorFor(r.risk)};">
+          <span class="rid">[${r.id}]</span>${iconFor(r.status)} ${r.name}：${r.reason}
+          ${r.condition ? `<div class="rule-lineage">判斷條件：${r.condition}｜資料來源：${r.data_source || '-'}｜OCR欄位：${r.ocr_field || '-'}｜信心分數：${r.confidence ?? '-'}｜處理方式：${r.disposition || (r.result || 'PASS')}</div>` : ''}
+        </li>
+      `).join('') + `</ul>`;
+    rightCol.appendChild(rulesBox);
+  } else if (data.risk_reasons && data.risk_reasons.length) {
+    const rulesBox = document.createElement('div');
+    rulesBox.className = 'box';
+    rulesBox.innerHTML = `<h2 class="section-title" style="margin-top:0;">📋 AI 判定原因（舊版資料）</h2><ul class="rule-list">` +
+      data.risk_reasons.map((r) => `<li style="color:${r.level === 'red' ? '#b91c1c' : '#b45309'};">${r.level === 'red' ? '🔴' : '🟡'} ${r.text}</li>`).join('') + `</ul>`;
+    rightCol.appendChild(rulesBox);
+  }
+
+  if (evalData?.cross_validation) {
+    const cvBox = document.createElement('div');
+    cvBox.className = 'box';
+    cvBox.innerHTML = `<h2 class="section-title" style="margin-top:0;">🔗 資料交叉比對</h2>` +
+      `<table class="cv-table"><tr><th>比對項目</th><th>A</th><th>B</th><th>結果</th></tr>` +
+      evalData.cross_validation.map((cv) => `
+        <tr><td>${cv.label}</td><td>${cv.a_value ?? '-'}<br/><span style="color:#9ca3af;">${cv.a_source}</span></td><td>${cv.b_value ?? '-'}<br/><span style="color:#9ca3af;">${cv.b_source}</span></td><td>${cvBadge(cv.result)}</td></tr>
+      `).join('') + `</table>`;
+    rightCol.appendChild(cvBox);
+  }
+
+  if (evalData?.ocr_data && evalData?.knowledge_base_data) {
+    const receipt = evalData.ocr_data.receipt || {};
+    const idCard = evalData.ocr_data.id_card || {};
+    const passbook = evalData.ocr_data.passbook || {};
+    const kb = evalData.knowledge_base_data.tool;
+    const compareTable = document.createElement('div');
+    compareTable.className = 'box';
+    compareTable.innerHTML = `<h2 class="section-title" style="margin-top:0;">🔍 OCR 擷取結果（申請人填寫 vs AI 擷取）</h2>` +
+      `<table class="compare-table">
+        <tr><th></th><th>申請人填寫</th><th>OCR 擷取</th></tr>
+        <tr><td>軟體名稱</td><td>${data.applied_tool_name || '-'}</td><td>${receipt.product_name ?? '無法辨識'}</td></tr>
+        <tr><td>軟體公司</td><td>${data.software_company || '-'}</td><td>${receipt.company_name ?? '無法辨識'}</td></tr>
+        <tr><td>訂閱人姓名</td><td>${data.name || '-'}</td><td>${receipt.buyer_name ?? '無法辨識'}</td></tr>
+        <tr><td>換算新臺幣</td><td>${data.declared_amount ?? '-'}</td><td>${receipt.converted_twd_amount ?? '無法辨識'}</td></tr>
+        <tr><td>購買來源</td><td>-</td><td>${receipt.purchase_source ?? '無法辨識'}</td></tr>
+        <tr><td>設籍新竹市</td><td>-</td><td>${idCard.is_hsinchu_city === true ? '✅ 是' : idCard.is_hsinchu_city === false ? '❌ 否' : '無法辨識'}</td></tr>
+        <tr><td>存摺戶名</td><td>${data.name || '-'}</td><td>${passbook.account_holder_name ?? '無法辨識'}</td></tr>
+      </table>` +
+      `<h2 class="section-title">📚 知識庫比對</h2>` +
+      (kb
+        ? `${kb.product_name}／${kb.company}／${kb.country_or_region}／${kb.eligible ? '✅合格' : '❌' + kb.prohibited_reason}／最後確認：${kb.last_verified_at}`
+        : `知識庫查無此工具資料，AI 無法自動判定合格與否，已標記人工複核`);
+    rightCol.appendChild(compareTable);
+  }
+
+  row.classList.add('open');
+}
+
+if (token) init();
+</script>
+</body>
+</html>

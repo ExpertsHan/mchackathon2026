@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>新竹市 AI 補助線上申請</title>
+<style>
+  :root { --brand:#2563eb; --bg:#f6f7fb; --card:#fff; --border:#e2e5ec; --ok:#16a34a; --err:#dc2626; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; color:#1f2430; }
+  .container { max-width:480px; margin:0 auto; padding:20px 16px 60px; }
+  h1 { font-size:20px; margin:12px 0 4px; }
+  p.sub { color:#6b7280; font-size:13px; margin-top:0; margin-bottom:20px; }
+  h2.section-title { font-size:15px; margin:0 0 10px; }
+  .card { background:var(--card); border:1px solid var(--border); border-radius:14px; padding:16px; margin-bottom:14px; }
+  label { display:block; font-size:13px; font-weight:600; margin:12px 0 6px; }
+  label .req { color:var(--err); font-weight:400; }
+  input[type=text], input[type=tel], input[type=number], input[type=email], input[type=date], select {
+    width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:8px; font-size:14px; background:#fff;
+  }
+  .radio-group { display:flex; flex-wrap:wrap; gap:14px; margin-top:4px; }
+  .radio-option { display:flex; align-items:center; gap:6px; font-size:13px; }
+  .radio-option label { margin:0; font-weight:400; }
+  .applicant-type-option { border:1px solid var(--border); border-radius:10px; padding:10px 12px; margin-bottom:8px; }
+  .applicant-type-option .head { display:flex; align-items:center; gap:8px; font-size:14px; font-weight:600; }
+  .applicant-type-option .desc { font-size:12px; color:#6b7280; margin:6px 0 0 24px; line-height:1.5; }
+  .checkbox-row { display:flex; align-items:center; gap:8px; margin-top:14px; }
+  button { cursor:pointer; border:none; border-radius:10px; font-size:14px; font-weight:600; padding:12px 16px; }
+  .btn-primary { background:var(--brand); color:#fff; width:100%; }
+  .btn-secondary { background:#eef2ff; color:var(--brand); width:100%; }
+  .doc-item { border:1px solid var(--border); border-radius:10px; padding:12px; margin-bottom:10px; }
+  .doc-item .title { font-size:14px; font-weight:600; display:flex; justify-content:space-between; align-items:center; }
+  .doc-item .hint { font-size:12px; color:#6b7280; margin:4px 0 10px; white-space:pre-line; }
+  .status-pill { font-size:12px; padding:2px 8px; border-radius:999px; background:#f3f4f6; color:#6b7280; }
+  .status-pill.done { background:#dcfce7; color:var(--ok); }
+  .status-pill.ocr { background:#e0e7ff; color:#4338ca; }
+  input[type=file] { font-size:13px; }
+  .msg { font-size:13px; margin-top:8px; }
+  .msg.err { color:var(--err); }
+  .app-id { font-family:monospace; font-size:12px; background:#f3f4f6; padding:6px 8px; border-radius:6px; word-break:break-all; }
+  .hidden { display:none !important; }
+  .amount-row { display:flex; gap:8px; }
+  .amount-row > div { flex:1; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>新竹市 AI 補助線上申請</h1>
+  <p class="sub">請依序完成基本資料填寫與文件上傳，全部上傳完成後才能送出申請。</p>
+
+  <div id="step1">
+    <div class="card">
+      <h2 class="section-title">申請人</h2>
+
+      <label>姓名 <span class="req">*</span></label>
+      <input type="text" id="name" placeholder="請輸入本人姓名" />
+
+      <label>聯絡電話 <span class="req">*</span></label>
+      <input type="tel" id="phone" placeholder="請輸入手機號碼" />
+
+      <label>身份證字號 <span class="req">*</span></label>
+      <input type="text" id="idNumber" maxlength="10" placeholder="A123456789" />
+
+      <label>出生日期 <span class="req">*</span></label>
+      <input type="date" id="birthDate" />
+
+      <label>電子郵件 <span class="req">*</span></label>
+      <input type="email" id="email" placeholder="example@mail.com" />
+
+      <label>戶籍地址 <span class="req">*</span></label>
+      <input type="text" id="householdAddress" placeholder="請輸入戶籍地址" />
+
+      <label>通訊地址 <span class="req">*</span></label>
+      <input type="text" id="mailingAddress" placeholder="請輸入通訊地址" />
+    </div>
+
+    <div class="card">
+      <h2 class="section-title">購買明細（數位工具/軟體）</h2>
+
+      <label>繳費制度 <span class="req">*</span></label>
+      <div class="radio-group">
+        <div class="radio-option"><input type="radio" name="paymentType" id="paymentType_annual" value="annual" /><label for="paymentType_annual">年費制</label></div>
+        <div class="radio-option"><input type="radio" name="paymentType" id="paymentType_monthly" value="monthly" /><label for="paymentType_monthly">月費制</label></div>
+      </div>
+
+      <label>功能 <span class="req">*</span></label>
+      <select id="softwareCategory">
+        <option value="">請選擇</option>
+        <option value="general">通用型</option>
+        <option value="image">影像類</option>
+        <option value="office">辦公類</option>
+        <option value="learning">學習類</option>
+        <option value="other">其他類</option>
+      </select>
+
+      <label>軟體名稱 <span class="req">*</span></label>
+      <input type="text" id="toolName" placeholder="例如：ChatGPT Plus、Canva Pro" />
+
+      <label>軟體公司名稱 <span class="req">*</span></label>
+      <input type="text" id="softwareCompany" placeholder="例如：OpenAI、Canva Inc." />
+
+      <label>購買日期 <span class="req">*</span></label>
+      <input type="date" id="purchaseDate" />
+
+      <label>是否本人信用卡 <span class="req">*</span></label>
+      <div class="radio-group">
+        <div class="radio-option"><input type="radio" name="isOwnCard" id="isOwnCard_yes" value="yes" /><label for="isOwnCard_yes">本人信用卡</label></div>
+        <div class="radio-option"><input type="radio" name="isOwnCard" id="isOwnCard_no" value="no" /><label for="isOwnCard_no">父母、配偶或法定代理人付費</label></div>
+      </div>
+
+      <label>原始費用幣別 <span class="req">*</span></label>
+      <select id="originalCurrency">
+        <option value="">請選擇</option>
+        <option value="TWD">新臺幣</option>
+        <option value="USD">美金</option>
+        <option value="JPY">日圓</option>
+        <option value="EUR">歐元</option>
+        <option value="AUD">澳幣</option>
+        <option value="HKD">港幣</option>
+        <option value="other">其他</option>
+      </select>
+
+      <div class="amount-row">
+        <div>
+          <label>原始費用 <span class="req">*</span></label>
+          <input type="number" id="originalAmount" placeholder="例如：19.99" />
+        </div>
+        <div>
+          <label>換算新臺幣 <span class="req">*</span></label>
+          <input type="number" id="amount" placeholder="例如：630" />
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2 class="section-title">申請身分</h2>
+
+      <div class="applicant-type-option">
+        <div class="head">
+          <input type="radio" name="applicantType" id="applicantType_normal" value="normal" checked />
+          <label for="applicantType_normal" style="margin:0;">一般青年</label>
+        </div>
+        <div class="desc">我是『一般青年』，會準備好應備文件：身分證正反面、購買憑證、存摺影本、親筆簽名切結書掃描檔。</div>
+      </div>
+
+      <div class="applicant-type-option">
+        <div class="head">
+          <input type="radio" name="applicantType" id="applicantType_special" value="special" />
+          <label for="applicantType_special" style="margin:0;">特定對象</label>
+        </div>
+        <div class="desc">我是『特定對象』，會準備好應備文件：身分證正反面、購買憑證、特定對象證明文件、存摺影本、親筆簽名切結書掃描檔。</div>
+        <select id="specialSubtype" class="hidden" style="margin-top:8px;">
+          <option value="">請選擇特定對象類別</option>
+          <option value="低收入戶">低收入戶</option>
+          <option value="中低收入戶">中低收入戶</option>
+          <option value="獨力負擔家計者">獨力負擔家計者</option>
+          <option value="身心障礙者">身心障礙者</option>
+          <option value="原住民">原住民</option>
+          <option value="新住民">新住民</option>
+          <option value="就業服務法第24條第1項各款情形">就業服務法第24條第1項各款情形</option>
+        </select>
+      </div>
+
+      <div class="applicant-type-option">
+        <div class="head">
+          <input type="radio" name="applicantType" id="applicantType_language" value="language" />
+          <label for="applicantType_language" style="margin:0;">文化語言保存者</label>
+        </div>
+        <div class="desc">我是『文化語言保存者』，會準備好應備文件：身分證正反面、購買憑證、語言能力認證證明文件、存摺影本、親筆簽名切結書掃描檔。</div>
+        <select id="languageSubtype" class="hidden" style="margin-top:8px;">
+          <option value="">請選擇語言認證類別</option>
+          <option value="原住民族語言能力認證">原住民族語言能力認證</option>
+          <option value="臺灣台語語言能力認證">臺灣台語語言能力認證</option>
+          <option value="客語能力認證">客語能力認證</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="card">
+      <button class="btn-primary" id="createBtn">建立申請案，開始上傳文件</button>
+      <div class="msg err hidden" id="step1Msg"></div>
+    </div>
+  </div>
+
+  <div class="card hidden" id="step2">
+    <div style="margin-bottom:12px;">
+      <div style="font-size:13px; color:#6b7280;">申請編號</div>
+      <div class="app-id" id="appIdDisplay"></div>
+    </div>
+    <p style="font-size:12px; color:#6b7280; margin-top:0;">請選擇您要上傳的檔案，大小不超過 10MB</p>
+    <div id="docList"></div>
+    <button class="btn-primary" id="submitBtn" style="margin-top:8px;">確認文件齊全，送出申請</button>
+    <button class="btn-secondary" id="cancelBtn" style="margin-top:8px;">取消這筆申請</button>
+    <div class="msg hidden" id="step2Msg"></div>
+  </div>
+
+  <div class="card hidden" id="step3">
+    <div style="font-size:16px; font-weight:700; color:var(--ok);">申請已送出 ✅</div>
+    <p style="font-size:13px; color:#4b5563;">您的申請案已成功送出，AI 已自動核對文件內容，承辦人員將盡快審核。您可以隨時回到 LINE 對話視窗輸入「查詢進度」查看目前狀態，狀態變更時也會主動通知您。</p>
+    <div class="app-id" id="finalAppId"></div>
+  </div>
+</div>
+
+<script>
+const params = new URLSearchParams(location.search);
+const lineUserId = params.get('uid') || null;
+const resumeId = params.get('resume') || null;
+const resumeToken = params.get('token') || null;
+
+// 這幾種文件類型允許一次選取、上傳多張圖片
+const MULTI_FILE_TYPES = ['id_card', 'receipt'];
+
+// 一定要附的文件（不分申請身分／付款方式）
+const BASE_DOC_TYPES = [
+  { key: 'id_card', label: '身分證正反面照片', hint: '請提供清晰照片，須能辨識「姓名、出生年月日、身分證字號、設籍新竹市住址」' },
+  {
+    key: 'receipt',
+    label: '購買憑證/發票',
+    hint: '需附繳：\n(一) 官方收據：含訂閱人姓名(訂閱人之電子信箱)、完整AI名稱(非空間)、軟體公司名稱、訂閱日期、訂閱期間或續訂日期、原始費用、付款方式。\n(二) 換算臺幣及繳款憑證(出帳帳單)。\n(三) 信用卡末四碼及姓名照片。\n(收據證明註明購買人。本人信用卡帳單扣款紀錄可證明購買品項及名稱。如附信用卡購買時，請提供信用卡背面本人簽名，加上卡號末4碼的畫面或截圖，其他卡號因涉及個資請隱藏或馬賽克。含軟體名稱、軟體公司名稱、購買日期、原始費用、換算新臺幣)',
+  },
+  { key: 'passbook', label: '存摺封面影本', hint: '拍照或掃描上傳，請確保內容完整、文字、數字清晰可辨識，避免模糊、反光或裁切。' },
+  { key: 'declaration', label: '切結書', hint: '切結書請親筆簽名後拍照或掃描上傳，請確保內容完整、字跡清晰可辨識，避免模糊、反光或裁切。' },
+];
+const CULTURAL_DOC = {
+  key: 'cultural_proof',
+  label: '特定對象及文化語言保存者證明文件',
+  hint: '非「特定對象及文化語言保存者」免附。',
+};
+const PAYER_DECLARATION_DOC = {
+  key: 'payer_declaration',
+  label: '父母、配偶或法定代理人代為支付切結書',
+  hint: '父母、配偶或法定代理人代為支付者，父母、配偶或法定代理人與申請者，請親筆簽名後拍照或掃描上傳，請確保內容完整、字跡清晰可辨識，避免模糊、反光或裁切。',
+};
+
+let appId = null;
+let accessToken = null;
+
+const step1 = document.getElementById('step1');
+const step2 = document.getElementById('step2');
+const step3 = document.getElementById('step3');
+const step1Msg = document.getElementById('step1Msg');
+const step2Msg = document.getElementById('step2Msg');
+
+function getRadioValue(name) {
+  const el = document.querySelector(`input[name="${name}"]:checked`);
+  return el ? el.value : null;
+}
+
+function updateApplicantTypeUI() {
+  const val = getRadioValue('applicantType');
+  document.getElementById('specialSubtype').classList.toggle('hidden', val !== 'special');
+  document.getElementById('languageSubtype').classList.toggle('hidden', val !== 'language');
+}
+document.querySelectorAll('input[name="applicantType"]').forEach((el) => el.addEventListener('change', updateApplicantTypeUI));
+updateApplicantTypeUI();
+
+document.getElementById('createBtn').addEventListener('click', async () => {
+  const name = document.getElementById('name').value.trim();
+  const phone = document.getElementById('phone').value.trim();
+  const idNumber = document.getElementById('idNumber').value.trim();
+  const birthDate = document.getElementById('birthDate').value;
+  const email = document.getElementById('email').value.trim();
+  const householdAddress = document.getElementById('householdAddress').value.trim();
+  const mailingAddress = document.getElementById('mailingAddress').value.trim();
+
+  const paymentType = getRadioValue('paymentType');
+  const softwareCategory = document.getElementById('softwareCategory').value;
+  const toolName = document.getElementById('toolName').value.trim();
+  const softwareCompany = document.getElementById('softwareCompany').value.trim();
+  const purchaseDate = document.getElementById('purchaseDate').value;
+  const isOwnCardValue = getRadioValue('isOwnCard');
+  const originalCurrency = document.getElementById('originalCurrency').value;
+  const originalAmount = document.getElementById('originalAmount').value.trim();
+  const amount = document.getElementById('amount').value.trim();
+
+  const applicantType = getRadioValue('applicantType') || 'normal';
+  const applicantSubtype = applicantType === 'special' ? document.getElementById('specialSubtype').value
+    : applicantType === 'language' ? document.getElementById('languageSubtype').value
+    : null;
+
+  const required = [
+    ['姓名', name], ['聯絡電話', phone], ['身份證字號', idNumber], ['出生日期', birthDate],
+    ['電子郵件', email], ['戶籍地址', householdAddress], ['通訊地址', mailingAddress],
+    ['繳費制度', paymentType], ['功能', softwareCategory], ['軟體名稱', toolName],
+    ['軟體公司名稱', softwareCompany], ['購買日期', purchaseDate], ['是否本人信用卡', isOwnCardValue],
+    ['原始費用幣別', originalCurrency], ['原始費用', originalAmount], ['換算新臺幣', amount],
+  ];
+  if (applicantType === 'special') required.push(['特定對象類別', applicantSubtype]);
+  if (applicantType === 'language') required.push(['語言認證類別', applicantSubtype]);
+
+  const missingField = required.find(([, v]) => !v);
+  if (missingField) {
+    step1Msg.textContent = `請填寫「${missingField[0]}」`;
+    step1Msg.classList.remove('hidden');
+    return;
+  }
+  step1Msg.classList.add('hidden');
+
+  const isOwnCreditCard = isOwnCardValue === 'yes';
+
+  const res = await fetch('/api/applications', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      line_user_id: lineUserId, name, phone,
+      id_number: idNumber,
+      birth_date: birthDate,
+      email,
+      household_address: householdAddress,
+      mailing_address: mailingAddress,
+      payment_type: paymentType,
+      software_category: softwareCategory,
+      applied_tool_name: toolName,
+      software_company: softwareCompany,
+      purchase_date: purchaseDate,
+      is_own_credit_card: isOwnCreditCard,
+      original_currency: originalCurrency,
+      original_amount: originalAmount,
+      declared_amount: amount,
+      applicant_type: applicantType,
+      applicant_subtype: applicantSubtype,
+    }),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    step1Msg.textContent = data.error || '建立申請案失敗';
+    step1Msg.classList.remove('hidden');
+    return;
+  }
+
+  appId = data.id;
+  accessToken = data.access_token;
+  document.getElementById('appIdDisplay').textContent = appId;
+  renderDocList(applicantType, isOwnCreditCard);
+  step1.classList.add('hidden');
+  step2.classList.remove('hidden');
+});
+
+function requiredDocKeys(applicantType, isOwnCreditCard) {
+  const docs = [...BASE_DOC_TYPES];
+  if (applicantType !== 'normal' && applicantType !== 'general') docs.push(CULTURAL_DOC);
+  if (!isOwnCreditCard) docs.push(PAYER_DECLARATION_DOC);
+  return docs;
+}
+
+function renderDocList(applicantType, isOwnCreditCard, uploadedCounts) {
+  const list = document.getElementById('docList');
+  const docs = requiredDocKeys(applicantType, isOwnCreditCard);
+
+  list.innerHTML = '';
+  docs.forEach((doc) => {
+    const isMulti = MULTI_FILE_TYPES.includes(doc.key);
+    const item = document.createElement('div');
+    item.className = 'doc-item';
+    item.innerHTML = `
+      <div class="title">
+        <span>${doc.label}</span>
+        <span class="status-pill" id="pill-${doc.key}">尚未上傳</span>
+      </div>
+      <div class="hint">${doc.hint}</div>
+      <input type="file" id="file-${doc.key}" accept="image/*,application/pdf" ${isMulti ? 'multiple' : ''} />
+      <button class="btn-secondary" style="margin-top:8px;" data-key="${doc.key}">上傳</button>
+    `;
+    list.appendChild(item);
+
+    const count = (uploadedCounts && uploadedCounts[doc.key]) || 0;
+    if (count > 0) {
+      const pill = document.getElementById(`pill-${doc.key}`);
+      pill.textContent = isMulti ? `已上傳 ${count} 張` : '已上傳';
+      pill.classList.add('done');
+    }
+  });
+  list.querySelectorAll('button[data-key]').forEach((btn) => {
+    btn.addEventListener('click', () => uploadDoc(btn.dataset.key));
+  });
+}
+
+async function uploadDoc(docType) {
+  const input = document.getElementById(`file-${docType}`);
+  if (!input.files.length) { alert('請先選擇檔案'); return; }
+  const fd = new FormData();
+  Array.from(input.files).forEach((f) => fd.append('files', f));
+
+  const res = await fetch(`/api/applications/${appId}/documents/${docType}`, {
+    method: 'POST',
+    headers: { 'x-access-token': accessToken },
+    body: fd,
+  });
+  const data = await res.json();
+  if (!res.ok) { alert(data.error || '上傳失敗'); return; }
+
+  const isMulti = MULTI_FILE_TYPES.includes(docType);
+  const pill = document.getElementById(`pill-${docType}`);
+  if (isMulti) {
+    const prevCount = pill.classList.contains('done') ? (parseInt(pill.textContent.match(/\d+/)?.[0] || '0', 10)) : 0;
+    const total = prevCount + data.count;
+    pill.textContent = `已上傳 ${total} 張`;
+  } else {
+    pill.textContent = '已上傳';
+  }
+  pill.classList.add('done');
+  input.value = '';
+}
+
+document.getElementById('submitBtn').addEventListener('click', async () => {
+  const btn = document.getElementById('submitBtn');
+  btn.disabled = true;
+  btn.textContent = '正在比對文件資料，請稍候…';
+
+  const res = await fetch(`/api/applications/${appId}/submit`, {
+    method: 'POST',
+    headers: { 'x-access-token': accessToken },
+  });
+  const data = await res.json();
+  btn.disabled = false;
+  btn.textContent = '確認文件齊全，送出申請';
+
+  if (!res.ok) {
+    step2Msg.textContent = data.error === '文件尚未齊全' ? `文件尚未齊全：${(data.missing || []).join('、')}` : data.error;
+    step2Msg.classList.remove('hidden');
+    step2Msg.classList.add('err');
+    return;
+  }
+  document.getElementById('finalAppId').textContent = appId;
+  step2.classList.add('hidden');
+  step3.classList.remove('hidden');
+});
+
+document.getElementById('cancelBtn').addEventListener('click', async () => {
+  if (!confirm('確定要取消這筆申請嗎？取消後無法復原。')) return;
+  const res = await fetch(`/api/applications/${appId}/cancel`, {
+    method: 'POST',
+    headers: { 'x-access-token': accessToken },
+  });
+  const data = await res.json();
+  if (!res.ok) { alert(data.error || '取消失敗'); return; }
+  alert('已取消此筆申請。');
+  location.href = 'apply.html';
+});
+
+// 如果網址帶有 resume + token（例如從紅燈補件的 LINE 通知連結點進來），
+// 直接跳過第一步，載入既有申請案資料進到文件上傳畫面。
+async function tryResume() {
+  if (!resumeId || !resumeToken) return;
+  const res = await fetch(`/api/applications/${resumeId}`, { headers: { 'x-access-token': resumeToken } });
+  if (!res.ok) { alert('找不到這筆申請案，或連結已失效，請重新申請。'); return; }
+  const data = await res.json();
+
+  appId = data.id;
+  accessToken = resumeToken;
+  document.getElementById('appIdDisplay').textContent = appId;
+
+  const uploadedCounts = {};
+  (data.documents || []).forEach((d) => {
+    uploadedCounts[d.doc_type] = (uploadedCounts[d.doc_type] || 0) + 1;
+  });
+
+  renderDocList(data.applicant_type, !!data.is_own_credit_card, uploadedCounts);
+  if (data.note) {
+    step2Msg.textContent = data.note;
+    step2Msg.classList.remove('hidden');
+    step2Msg.classList.remove('err');
+  }
+  step1.classList.add('hidden');
+  step2.classList.remove('hidden');
+}
+
+tryResume();
+</script>
+</body>
+</html>
