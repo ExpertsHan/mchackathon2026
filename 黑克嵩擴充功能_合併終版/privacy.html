@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<title>AI 資安防護小幫手｜隱私聲明</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, "Segoe UI", "PingFang TC", "Microsoft JhengHei", sans-serif;
+    background: #f3f4f6;
+    color: #1f2937;
+    margin: 0;
+    padding: 40px 20px;
+    line-height: 1.7;
+  }
+  .card {
+    max-width: 640px;
+    margin: 0 auto;
+    background: #ffffff;
+    border-radius: 14px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.08);
+    overflow: hidden;
+  }
+  .header {
+    background: #1677ff;
+    color: white;
+    padding: 28px 32px;
+  }
+  .header h1 {
+    margin: 0 0 6px;
+    font-size: 22px;
+  }
+  .header p {
+    margin: 0;
+    font-size: 14px;
+    opacity: 0.9;
+  }
+  .body {
+    padding: 28px 32px;
+  }
+  .body h2 {
+    font-size: 16px;
+    margin: 24px 0 8px;
+    color: #111827;
+  }
+  .body h2:first-child { margin-top: 0; }
+  .body p, .body li {
+    font-size: 14px;
+    color: #374151;
+  }
+  .body ul { padding-left: 20px; margin: 8px 0; }
+  .ok-box {
+    background: #ecfdf5;
+    border-left: 4px solid #10b981;
+    padding: 12px 16px;
+    border-radius: 8px;
+    margin: 10px 0;
+  }
+  .no-box {
+    background: #fef2f2;
+    border-left: 4px solid #ef4444;
+    padding: 12px 16px;
+    border-radius: 8px;
+    margin: 10px 0;
+  }
+  .footer {
+    padding: 20px 32px 28px;
+    text-align: center;
+  }
+  .footer button {
+    background: #1677ff;
+    color: white;
+    border: none;
+    padding: 12px 28px;
+    border-radius: 8px;
+    font-size: 15px;
+    font-weight: bold;
+    cursor: pointer;
+  }
+  .footer button:hover { background: #0958d9; }
+  .footer .hint {
+    margin-top: 10px;
+    font-size: 12px;
+    color: #9ca3af;
+  }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="header">
+      <h1>🛡️ AI 資安防護小幫手</h1>
+      <p>在您開始使用前，請先花一分鐘了解這個工具會做什麼、不會做什麼</p>
+    </div>
+    <div class="body">
+      <h2>這個工具在做什麼</h2>
+      <p>
+        本擴充功能會在您瀏覽網頁時，於<strong>您的電腦本機（瀏覽器內）</strong>即時檢查：
+      </p>
+      <ul>
+        <li>目前網站是否為官方未核准補助、或屬高風險地區開發營運的 AI 工具</li>
+        <li>您準備「送出」的輸入內容，是否包含疑似身分證字號、信用卡號、手機號碼等個資格式，或疑似提示詞注入（Prompt Injection）的指令</li>
+      </ul>
+      <p>符合以上情況時，會跳出提醒視窗，說明風險並提供資安宣導資訊；您仍可以選擇「執意發送」，本工具不會強制阻擋您的操作（黑名單網站除外）。</p>
+
+      <h2>資料如何處理</h2>
+      <div class="ok-box">
+        ✅ 所有偵測都在您的瀏覽器本機即時運算完成，<strong>不會把您輸入的任何內容傳送到任何伺服器</strong>（包含我們自己的伺服器）。
+      </div>
+      <div class="no-box">
+        ❌ 本工具不會記錄、儲存或上傳您輸入過的文字內容；提醒視窗關閉後，該次偵測的內容也不會被保留。
+      </div>
+
+      <h2>權限說明</h2>
+      <p>本擴充功能只讀取當下網頁的文字內容以進行本機比對，不會讀取您的瀏覽紀錄、帳號密碼、Cookie 或其他分頁的資料。</p>
+
+      <h2>有問題怎麼辦</h2>
+      <p>如果您認為某次提醒是誤判、或想了解黑白名單的認定依據，歡迎透過擴充功能圖示內的 LINE 官方帳號與我們聯繫，或參考資安使用懶人包。</p>
+    </div>
+    <div class="footer">
+      <button id="close-btn">我已了解，開始使用</button>
+      <div class="hint">此頁面僅在您第一次安裝時顯示一次</div>
+    </div>
+  </div>
+
+  <script src="privacy.js"></script>
+</body>
+</html>

@@ -95,6 +95,19 @@ export default function ApplyPage() {
     if (!started.current) { started.current = true; void initialize(); }
   }, [hydrated, user, router, initialize]);
 
+  const autoSelectedProduct = useRef(false);
+
+  useEffect(() => {
+    if (autoSelectedProduct.current) return;
+    if (!application || subscription?.product || actionLoading) return;
+    const requested = new URLSearchParams(window.location.search).get("product");
+    if (!requested) return;
+    const match = PRODUCTS.find((product) => product.product.toLowerCase() === requested.toLowerCase());
+    if (!match) return;
+    autoSelectedProduct.current = true;
+    void chooseProduct(match);
+  }, [application, subscription, actionLoading]);
+
   const completeSteps = useMemo(() => {
     const steps: number[] = [];
     if (user?.identity_verified) steps.push(1);
