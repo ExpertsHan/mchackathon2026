@@ -111,6 +111,38 @@ def test_complete_happy_path_policy_safety_submit_payment_tracking(
     assert "PAYMENT_COMPLETED" in actions
 
 
+def test_source_review_missing_documents_prevents_automatic_approval(
+    client: TestClient,
+) -> None:
+    public_id = create_application(client, "alex")
+    source = client.post(
+        f"/api/applications/{public_id}/source-data",
+        json={
+            "birth_date": "2000-01-01",
+            "household_address": "新竹市",
+            "applicant_type": "normal",
+            "payment_type": "monthly",
+            "software_category": "general",
+            "purchase_date": "2026-08-18",
+            "declared_amount": 600,
+            "is_own_credit_card": True,
+        },
+    )
+    assert source.status_code == 200, source.text
+    assert source.json()["evaluation"]["result"] == "NEED_SUPPLEMENT"
+    upload(client, public_id, "chatgpt_plus_valid.pdf")
+    complete_safety(client, "alex")
+
+    submitted = client.post(f"/api/applications/{public_id}/submit")
+    assert submitted.status_code == 200, submitted.text
+    assert submitted.json()["application"]["status"] == "REQUESTED_INFORMATION"
+    assert submitted.json()["application"]["approved_amount_twd"] is None
+
+    reviewer = client.get(f"/api/admin/applications/{public_id}").json()
+    assert reviewer["source_review"]["evaluation"]["result"] == "NEED_SUPPLEMENT"
+    assert len(reviewer["source_review"]["evaluation"]["rules"]) == 17
+
+
 def test_duplicate_receipt_enters_manual_review(client: TestClient) -> None:
     public_id = create_application(client, "jamie")
     uploaded = upload(client, public_id, "duplicate_receipt.pdf")

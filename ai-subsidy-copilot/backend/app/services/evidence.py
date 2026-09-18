@@ -203,6 +203,9 @@ def attach_receipt(
             "duplicate_found": duplicate,
         },
     )
+    from app.services.source_review import record_receipt
+
+    record_receipt(db, application, stored)
     db.commit()
     db.refresh(subscription)
     return subscription, stored, duplicate

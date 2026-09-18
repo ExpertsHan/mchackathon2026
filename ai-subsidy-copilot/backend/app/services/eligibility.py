@@ -500,13 +500,18 @@ def evaluate_application(
         suspicious_receipt=subscription.suspicious_content if subscription else False,
         policy_established=bool(policy_results) if persist else True,
     )
-    if reserve_claim:
-        preliminary = evaluate_eligibility(data)
-        if preliminary.eligible:
-            conflicts = reserve_claim_keys(db, application)
-            if conflicts:
-                data = data.model_copy(update={"claim_reservation_conflicts": conflicts})
     result = evaluate_eligibility(data)
+    if persist:
+        from app.services.source_review import apply_review_gate
+
+        result = apply_review_gate(db, application, result, refresh=True)
+    if reserve_claim and result.eligible:
+        conflicts = reserve_claim_keys(db, application)
+        if conflicts:
+            data = data.model_copy(update={"claim_reservation_conflicts": conflicts})
+            result = evaluate_eligibility(data)
+            if persist:
+                result = apply_review_gate(db, application, result, refresh=False)
     if persist:
         application.eligibility_result = result.outcome
         application.eligibility_reasons_json = [

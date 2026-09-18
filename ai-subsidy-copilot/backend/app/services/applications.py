@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.core.enums import ActorType, ApplicationStatus, EligibilityOutcome
 from app.core.errors import DomainError, ResourceNotFound, SafetyTrainingIncomplete
-from app.models import Application, ApplicationIdSequence, Subscription, User
+from app.models import Application, ApplicationIdSequence, SourceReview, Subscription, User
 from app.schemas import EligibilityEvaluation, SubscriptionInput
 from app.services.audit import record_audit
 from app.services.claim_reservations import reserve_claim_keys
@@ -210,6 +210,9 @@ def submit_application(
             application=application,
             details={"risk_level": result.risk_level, "reasons": result.risk_reasons},
         )
+        from app.services.source_review import request_source_supplements
+
+        request_source_supplements(db, application)
     elif result.eligible:
         transition_application(application, ApplicationStatus.APPROVED)
         application.approved_amount_twd = result.approved_amount_twd
@@ -258,6 +261,17 @@ def approve_application(
         )
 
     result = evaluate_application(db, application, persist=True)
+    source_review = db.get(SourceReview, application.id)
+    if (
+        source_review is not None
+        and source_review.documents_required
+        and source_review.evaluation.get("result") in {"NEED_SUPPLEMENT", "REJECT"}
+    ):
+        raise DomainError(
+            "SOURCE_REVIEW_INCOMPLETE",
+            "Required source documents or OCR policy checks must be resolved before approval.",
+            status_code=409,
+        )
     safety_check = next(
         check for check in result.checks if check.rule.value == "SAFETY_TRAINING_COMPLETED"
     )

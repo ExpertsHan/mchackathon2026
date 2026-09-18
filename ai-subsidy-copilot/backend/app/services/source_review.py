@@ -79,7 +79,7 @@ def record_receipt(db: Session, application: Application, stored) -> None:
         if document.document_type == "receipt":
             document.active = False
     extracted = stored.extraction
-    fields = dict(extracted.source_fields)
+    fields: dict = {}
     mappings = {
         "company_name": extracted.provider,
         "product_name": extracted.product,
@@ -95,9 +95,7 @@ def record_receipt(db: Session, application: Application, stored) -> None:
     # Only literal TWD amounts belong to OCR evidence; mock FX is a different source.
     if extracted.currency == "TWD" and extracted.amount is not None:
         fields.setdefault("converted_twd_amount", float(extracted.amount))
-    fields["_confidence"] = extracted.field_confidence or {
-        key: extracted.confidence for key in fields
-    }
+    fields["_confidence"] = {key: extracted.confidence for key in fields}
     db.add(
         SourceDocument(
             application_id=application.id,
@@ -335,7 +333,7 @@ def apply_review_gate(db: Session, application: Application, result, *, refresh:
         if rule.get("id") in {"RULE-006", "RULE-007", "RULE-008", "RULE-019"}
         and rule.get("result") in {"REJECT", "FRAUD_RISK"}
     ]
-    if not (review.documents_required or flags or evaluation.get("error")):
+    if not (review.documents_required or flags):
         return result
     reason = (
         "OCR 文件審核須由承辦人確認。"

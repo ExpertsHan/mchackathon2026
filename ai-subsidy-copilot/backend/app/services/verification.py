@@ -53,6 +53,9 @@ def run_verification(db: Session, application: Application) -> Application:
             application=application,
             details={"risk_level": result.risk_level, "reasons": result.risk_reasons},
         )
+        from app.services.source_review import request_source_supplements
+
+        request_source_supplements(db, application)
     elif result.eligible:
         transition_application(application, ApplicationStatus.APPROVED)
         application.approved_amount_twd = result.approved_amount_twd

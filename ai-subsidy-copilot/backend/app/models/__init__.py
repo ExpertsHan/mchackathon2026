@@ -16,6 +16,7 @@ from app.models.domain import (
     User,
 )
 from app.models.source_review import SourceDocument, SourceReview
+from app.models.line_integration import LineBinding, LineLinkCode
 
 __all__ = [
     "AgentSession",
@@ -32,6 +33,8 @@ __all__ = [
     "Subscription",
     "SourceDocument",
     "SourceReview",
+    "LineBinding",
+    "LineLinkCode",
     "User",
     "utcnow",
 ]

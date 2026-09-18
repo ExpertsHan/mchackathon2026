@@ -44,6 +44,7 @@ class Settings(BaseSettings):
     ocr_node_binary: str = "node"
     ocr_timeout_seconds: int = Field(default=55, ge=5, le=120)
     max_source_documents: int = Field(default=30, ge=1, le=100)
+    line_integration_secret: str = ""
 
     frontend_origin: str = "http://localhost:3000"
     cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"

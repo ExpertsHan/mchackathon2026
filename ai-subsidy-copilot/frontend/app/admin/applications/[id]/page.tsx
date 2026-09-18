@@ -14,6 +14,7 @@ import { PolicyCitationList } from "@/components/policy-citation";
 import { ReceiptSummary } from "@/components/receipt-summary";
 import { ReviewerActions } from "@/components/reviewer-actions";
 import { RiskBadge, StatusBadge } from "@/components/status-badge";
+import { SourceReviewPanel } from "@/components/source-review";
 import { api } from "@/lib/api";
 import type { Application, EligibilityResult } from "@/lib/types";
 import { formatCurrency, formatDate, formatReceiptAmount, getErrorMessage, truncateHash } from "@/lib/utils";
@@ -82,6 +83,7 @@ export default function ReviewerApplicationPage() {
           </Card>
 
           {eligibility ? <EligibilityChecklist result={eligibility} title="Eligibility checks" /> : <Alert tone="warning">Eligibility has not been evaluated yet.</Alert>}
+          <SourceReviewPanel publicId={publicId} review={application.source_review} reviewer />
 
           <Card className="p-5 sm:p-6">
             <div className="mb-5 flex items-center gap-3"><span className="grid size-10 place-items-center rounded-xl bg-navy-50 text-navy-700"><BookOpen className="size-5" /></span><div><h2 className="text-lg font-bold text-navy-900">AI / RAG explanation</h2><p className="text-xs text-slate-500">Retrieved policy evidence, not decision authority</p></div></div>

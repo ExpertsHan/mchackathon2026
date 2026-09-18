@@ -11,6 +11,7 @@ import { EligibilityChecklist } from "@/components/eligibility-checklist";
 import { PaymentPanel } from "@/components/payment-panel";
 import { PolicyCitationList } from "@/components/policy-citation";
 import { RiskBadge, StatusBadge } from "@/components/status-badge";
+import { SourceReviewPanel } from "@/components/source-review";
 import { KeyValueGrid } from "@/components/application-summary";
 import { api } from "@/lib/api";
 import type { Application, EligibilityResult, TimelineEvent } from "@/lib/types";
@@ -63,6 +64,7 @@ export default function ApplicationStatusPage() {
           </Card>
 
           {eligibility ? <EligibilityChecklist result={eligibility} title="Deterministic eligibility checks" /> : null}
+          <SourceReviewPanel publicId={publicId} review={application.source_review} />
 
         </div>
 

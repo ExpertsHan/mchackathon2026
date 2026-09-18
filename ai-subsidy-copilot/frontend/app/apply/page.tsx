@@ -11,6 +11,8 @@ import { ChatWindow } from "@/components/chat-window";
 import { ChatInput, QuickReplyButtons } from "@/components/chat-input";
 import { ReceiptUploader } from "@/components/receipt-uploader";
 import { ReceiptSummary } from "@/components/receipt-summary";
+import { SourceIntake } from "@/components/source-intake";
+import { SourceReviewPanel } from "@/components/source-review";
 import { EligibilityChecklist } from "@/components/eligibility-checklist";
 import { ApplicationSummary } from "@/components/application-summary";
 import { PolicyCitationList } from "@/components/policy-citation";
@@ -313,6 +315,10 @@ export default function ApplyPage() {
           ) : <Card><LoadingState label="Checking application progress…" /></Card>}
         </aside>
       </div>
+      {application && !finalized && hasUploadedReceipt(subscription) ? <section className="mt-6 space-y-4" aria-label="Supporting documents and OCR review">
+        <SourceIntake publicId={application.public_id} review={application.source_review} onUpdated={async () => hydrateApplication(await api.getApplication(application.public_id))} />
+        <SourceReviewPanel publicId={application.public_id} review={application.source_review} />
+      </section> : null}
     </PageContainer>
   );
 }
