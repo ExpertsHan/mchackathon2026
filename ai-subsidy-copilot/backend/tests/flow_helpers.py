@@ -119,6 +119,7 @@ def create_application(client: TestClient, user_key: str) -> str:
 def applicant_form(user: str = "alex", **overrides) -> dict:
     return {
         "id_number": ID_NUMBERS[user],
+        "name": {"alex": "Alex Chen", "jamie": "Jamie Lin", "taylor": "Taylor Wang"}[user],
         "phone": "0912345678",
         "birth_date": "2000-05-05",
         "household_address": "新竹市東區光復路一段1號",

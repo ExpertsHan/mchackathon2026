@@ -2,6 +2,7 @@ import type { SourceApplicant } from "@/lib/types";
 
 /** Applicant fields the server requires before submission (mirrors REQUIRED_APPLICANT_FIELDS). */
 export const REQUIRED_FIELDS: Array<[keyof SourceApplicant, string]> = [
+  ["name", "姓名"],
   ["phone", "聯絡電話"],
   ["birth_date", "出生日期"],
   ["household_address", "戶籍地址"],

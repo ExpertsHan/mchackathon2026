@@ -113,6 +113,7 @@ export type Currency = "TWD" | "USD" | "JPY" | "EUR" | "AUD" | "HKD" | "other";
 
 /** The applicant form. `id_number` is write-only: it is hashed by the server and never returned. */
 export interface SourceApplicant {
+  name?: string | null;
   id_number?: string | null;
   phone?: string | null;
   birth_date?: string | null;
@@ -166,6 +167,7 @@ export interface ApplicationStatusInfo { public_id: string; status: ApplicationS
 
 /** Raw, unsaved applicant-form values sent only with the next chat request. */
 export interface SourceIntakeDraftFields {
+  name?: string;
   id_number?: string;
   phone?: string;
   birth_date?: string;

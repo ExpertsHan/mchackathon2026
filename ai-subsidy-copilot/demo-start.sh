@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # 一鍵啟動 demo：gateway + ngrok + 後端 + 前端 + LINE Bot，並自動更新 LINE Webhook URL。
-# 用法：./demo-start.sh        （Ctrl+C 結束並關閉全部服務）
+# 用法：./demo-start.sh        啟動（Ctrl+C 結束並關閉全部服務）
+#       ./demo-start.sh stop   強制關閉所有 demo 服務
 # 前置：ngrok 已設定 authtoken；根目錄 .env 已填 LINE_CHANNEL_ACCESS_TOKEN / LINE_CHANNEL_SECRET / LINE_INTEGRATION_SECRET。
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
@@ -16,11 +17,19 @@ command -v ngrok >/dev/null || { echo "❌ 找不到 ngrok"; exit 1; }
 [[ -d ocr/node_modules ]] || (cd ocr && npm install --no-audit --no-fund)
 [[ -d frontend/node_modules ]] || (cd frontend && npm install --no-audit --no-fund)
 
-# 清掉上次殘留的服務
-pkill -f "uvicorn app.main" 2>/dev/null; pkill -f "line-gateway.js" 2>/dev/null
-pkill -f "line-server.js" 2>/dev/null; pkill -f "next dev" 2>/dev/null; pkill -x ngrok 2>/dev/null
-for p in 3000 3100 8000 8080 4040; do lsof -ti tcp:$p 2>/dev/null | xargs kill 2>/dev/null; done
-sleep 1
+# 清掉上次殘留的服務（也供 stop 使用）
+stop_all() {
+  pkill -f "uvicorn app.main" 2>/dev/null; pkill -f "line-gateway.js" 2>/dev/null
+  pkill -f "line-server.js" 2>/dev/null; pkill -f "next dev" 2>/dev/null
+  pkill -f "next-server" 2>/dev/null; pkill -x ngrok 2>/dev/null
+  # 上一次的 demo-start.sh 主程序（以 pid 檔記錄，避免誤殺）
+  [[ -f "$LOG/main.pid" ]] && kill "$(cat "$LOG/main.pid")" 2>/dev/null
+  for p in 3000 3100 8000 8080 4040; do lsof -ti tcp:$p 2>/dev/null | xargs kill -9 2>/dev/null; done
+  sleep 1
+}
+if [[ "${1:-start}" == "stop" ]]; then stop_all; echo "✅ 已關閉所有 demo 服務"; trap - EXIT; exit 0; fi
+stop_all
+echo $$ > "$LOG/main.pid"
 
 PIDS=()
 cleanup() { echo; echo "關閉所有服務…"; kill "${PIDS[@]}" 2>/dev/null; pkill -f "next dev" 2>/dev/null; exit 0; }

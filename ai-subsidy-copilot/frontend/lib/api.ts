@@ -302,27 +302,18 @@ export const api = {
     }>("/health");
   },
 
-  async getDemoUsers() {
-    const body = await request<unknown>("/api/demo/users");
-    return unwrap<DemoUser[]>(body, "users", "items");
-  },
-
-  async loginDemoUser(userId: string) {
-    const body = await request<unknown>("/api/demo/login", {
+  async startApplicant(lineCode?: string | null) {
+    const body = await request<unknown>("/api/applicants/start", {
       method: "POST",
-      body: JSON.stringify({ user_id: userId }),
+      body: JSON.stringify({ line_code: lineCode || null }),
     });
     const record = isRecord(body) ? body : {};
     const user = unwrap<DemoUser>(body, "user", "applicant");
     const demoToken = typeof record.demo_token === "string" ? record.demo_token : "";
     if (!user?.id || !demoToken) {
-      throw new ApiError("The demo login response did not include valid credentials.", "INVALID_DEMO_SESSION", 500);
+      throw new ApiError("The session response did not include valid credentials.", "INVALID_DEMO_SESSION", 500);
     }
-    return {
-      user,
-      demo_token: demoToken,
-      notice: typeof record.notice === "string" ? record.notice : undefined,
-    } satisfies DemoLoginResponse;
+    return { user, demo_token: demoToken } satisfies DemoLoginResponse;
   },
 
   async resetDemo() {

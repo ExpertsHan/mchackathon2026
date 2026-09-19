@@ -148,3 +148,22 @@ def test_push_failure_never_breaks_the_workflow(
     submitted = client.post(f"/api/applications/{public_id}/submit")
     assert submitted.status_code == 200
     assert submitted.json()["application"]["status"] == "MANUAL_REVIEW"
+
+
+def test_line_link_creates_applicant_and_returning_line_user_gets_same_record(
+    client: TestClient, line_settings: list[tuple[str, str]]
+) -> None:
+    first = client.post("/api/applicants/start", json={"line_code": link(client)})
+    assert first.status_code == 200, first.text
+    again = client.post("/api/applicants/start", json={"line_code": link(client)})
+    assert again.json()["user"]["id"] == first.json()["user"]["id"]
+
+    listed = client.get(
+        "/api/internal/line/applications", params={"line_user_id": LINE_USER}, headers=KEY
+    )
+    assert listed.status_code == 200
+
+    code = link(client)
+    assert client.post("/api/applicants/start", json={"line_code": code}).status_code == 200
+    assert client.post("/api/applicants/start", json={"line_code": code}).status_code == 400
+    assert client.post("/api/applicants/start", json={"line_code": "nope"}).status_code == 400

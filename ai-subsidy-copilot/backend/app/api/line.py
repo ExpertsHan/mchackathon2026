@@ -16,14 +16,16 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.auth import get_current_demo_user
+from app.core.auth import get_current_demo_user, issue_demo_token
 from app.core.config import settings
 from app.core.database import get_db
-from app.core.enums import ApplicationStatus
+from app.core.enums import ActorType, ApplicationStatus
 from app.core.errors import DomainError
 from app.models import Application, LineBinding, LineLinkCode, User, utcnow
-from app.schemas.api import LineLinkRequest, MessageResponse
+from app.schemas.api import DemoLoginResponse, LineLinkRequest, MessageResponse
+from app.schemas.domain import UserRead
 from app.services.applications import cancel_application
+from app.services.audit import record_audit
 
 router = APIRouter(tags=["line"])
 
@@ -149,3 +151,63 @@ def bind_line(
     link.used_at = utcnow()
     db.commit()
     return MessageResponse(message="LINE 帳號已綁定，後續進度會透過 LINE 通知。")
+
+
+class ApplicantStartRequest(BaseModel):
+    line_code: str | None = Field(default=None, max_length=64)
+
+
+@router.post("/api/applicants/start", response_model=DemoLoginResponse, tags=["applicants"])
+def start_applicant(
+    payload: ApplicantStartRequest, db: Session = Depends(get_db)
+) -> DemoLoginResponse:
+    """Open a session for an applicant. There is no profile picker: a new record is created.
+
+    With a valid one-time LINE code the session is tied to that LINE account: a returning
+    LINE user gets their existing record back, otherwise a new one is created and bound.
+    """
+
+    link = None
+    if payload.line_code:
+        link = db.scalar(
+            select(LineLinkCode).where(LineLinkCode.code_hash == _hash(payload.line_code))
+        )
+        if link is None or link.used_at is not None or _aware(link.expires_at) < utcnow():
+            raise DomainError(
+                "LINK_CODE_INVALID",
+                "此連結已失效，請回 LINE 重新輸入「申請」。",
+                status_code=400,
+            )
+    user = None
+    if link is not None:
+        binding = db.scalar(
+            select(LineBinding).where(LineBinding.line_user_id == link.line_user_id)
+        )
+        user = db.get(User, binding.user_id) if binding is not None else None
+    if user is None:
+        user = User(
+            name="申請人",
+            government_id_masked="尚未填寫",
+            age=0,
+            email=f"applicant-{secrets.token_hex(6)}@applicants.local",
+            identity_verified=False,
+        )
+        db.add(user)
+        db.flush()
+        if link is not None:
+            db.add(LineBinding(user_id=user.id, line_user_id=link.line_user_id))
+    if link is not None:
+        link.user_id = user.id
+        link.used_at = utcnow()
+    record_audit(
+        db,
+        action="USER_LOGGED_IN",
+        actor_type=ActorType.CITIZEN,
+        actor_identifier=str(user.id),
+        user_id=user.id,
+        details={"authentication": "line_link" if link is not None else "guest"},
+    )
+    db.commit()
+    return DemoLoginResponse(
+        user=UserRead.model_validate(user), demo_token=issue_demo_token(user.id)
+    )

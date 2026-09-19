@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 
 from app.core.enums import ApplicationStatus
 from app.models import Application, AuditLog, ClaimReservation, User
-from app.services.demo import DEMO_GOVERNMENT_IDS, DEMO_USER_IDS
+from app.services.demo import DEMO_USER_IDS
 
 
 def approve(client: TestClient, public_id: str, **extra):
@@ -29,28 +29,24 @@ def approve(client: TestClient, public_id: str, **extra):
     )
 
 
-def test_demo_login_surfaces_show_full_fictional_ids_without_changing_stored_masks(
+def test_demo_profile_picker_is_gone_and_applicants_are_created_on_demand(
     client: TestClient, db: Session
 ) -> None:
-    users = client.get("/api/demo/users")
-    assert users.status_code == 200
-    displayed = {item["name"]: item["government_id_masked"] for item in users.json()}
-    assert displayed == {
-        "Alex Chen": DEMO_GOVERNMENT_IDS["alex"],
-        "Jamie Lin": DEMO_GOVERNMENT_IDS["jamie"],
-        "Taylor Wang": DEMO_GOVERNMENT_IDS["taylor"],
-    }
+    assert client.get("/api/demo/users").status_code == 404
 
-    login = client.post(
-        "/api/demo/login", json={"user_id": str(DEMO_USER_IDS["alex"])}
+    first = client.post("/api/applicants/start", json={})
+    second = client.post("/api/applicants/start", json={})
+    assert first.status_code == 200 and second.status_code == 200
+    assert first.json()["user"]["id"] != second.json()["user"]["id"]
+    assert first.json()["demo_token"]
+
+    token = first.json()["demo_token"]
+    created = client.post(
+        "/api/applications",
+        json={"user_id": first.json()["user"]["id"]},
+        headers={"Authorization": f"Bearer {token}"},
     )
-    assert login.status_code == 200
-    assert login.json()["user"]["government_id_masked"] == DEMO_GOVERNMENT_IDS["alex"]
-
-    # Full values are presentation-only. Persistence and non-demo APIs stay masked.
-    stored = db.get(User, DEMO_USER_IDS["alex"])
-    assert stored is not None
-    assert stored.government_id_masked == "A12****789"
+    assert created.status_code == 200
 
 
 def test_happy_path_goes_to_human_review_then_approval_and_payment(
@@ -430,8 +426,10 @@ def test_demo_reset_is_repeatable(client: TestClient, monkeypatch: pytest.Monkey
     complete_application(client, "alex")
     for _ in range(2):
         assert client.post("/api/demo/reset").status_code == 200
-    login_as(client, "alex")
+    # Reset wipes the fictional profiles too: applicants are created on demand afterwards.
     assert (
-        client.post("/api/applications", json={"user_id": str(DEMO_USER_IDS["alex"])}).status_code
-        == 200
+        client.post("/api/demo/login", json={"user_id": str(DEMO_USER_IDS["alex"])}).status_code
+        == 404
     )
+    started = client.post("/api/applicants/start", json={})
+    assert started.status_code == 200

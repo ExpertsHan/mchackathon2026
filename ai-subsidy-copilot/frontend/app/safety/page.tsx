@@ -47,7 +47,7 @@ export default function SafetyPage() {
   const total = progress?.required_count ?? modules.length;
 
   async function answer(choiceId: string): Promise<QuizResult> {
-    if (!user || !activeModule) throw new Error("Choose a demo applicant before recording training progress.");
+    if (!user || !activeModule) throw new Error("Start an application before recording training progress.");
     const result = await api.answerSafetyModule(activeModule.id, user.id, choiceId);
     if (result.completed) {
       const latestProgress = await api.getSafetyProgress(user.id);
@@ -66,8 +66,8 @@ export default function SafetyPage() {
   if (!hydrated) return <LoadingState label="Loading optional AI safety learning…" className="min-h-[65vh]" />;
   if (!user) return (
     <PageContainer className="max-w-3xl py-16">
-      <SectionHeading eyebrow="Optional learning" title="AI Safety Learning" description="Learning progress is tied to a fictional demo applicant but never changes the application outcome." />
-      <Card className="mt-7 p-6 sm:p-8"><Alert tone="info" title="Choose a demo applicant first">The safety module list and quiz progress are protected citizen data in this demo session.</Alert><Button asChild size="lg" className="mt-5"><Link href="/login">Choose an applicant <ArrowRight className="size-5" /></Link></Button></Card>
+      <SectionHeading eyebrow="Optional learning" title="AI Safety Learning" description="Learning progress is tied to your applicant session but never changes the application outcome." />
+      <Card className="mt-7 p-6 sm:p-8"><Alert tone="info" title="請先開始申請">The safety module list and quiz progress are protected citizen data in this demo session.</Alert><Button asChild size="lg" className="mt-5"><Link href="/login">Choose an applicant <ArrowRight className="size-5" /></Link></Button></Card>
     </PageContainer>
   );
   if (loading) return <LoadingState label="Loading optional AI safety learning…" className="min-h-[65vh]" />;

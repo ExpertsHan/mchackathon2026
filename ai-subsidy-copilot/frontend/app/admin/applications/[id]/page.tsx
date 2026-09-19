@@ -63,7 +63,7 @@ export default function ReviewerApplicationPage() {
             <div className="mb-5 flex items-center gap-3"><span className="grid size-10 place-items-center rounded-xl bg-navy-50 text-navy-700"><UserRound className="size-5" /></span><div><h2 className="text-lg font-bold text-navy-900">Applicant</h2><p className="text-xs text-slate-500">Fictional demo identity</p></div></div>
             <KeyValueGrid items={[
               { label: "Name", value: applicant?.name ?? "—", icon: UserRound },
-              { label: "Demo government ID", value: <span className="font-mono">{applicant?.government_id_masked ?? "—"}</span>, icon: Fingerprint },
+              { label: "身分證字號（遮罩）", value: <span className="font-mono">{applicant?.government_id_masked ?? "—"}</span>, icon: Fingerprint },
               { label: "Age", value: applicant?.age ?? "—", icon: Calendar },
               { label: "Identity verification", value: applicant?.identity_verified ? <span className="inline-flex items-center gap-1.5 text-emerald-700"><BadgeCheck className="size-4" /> Verified</span> : "Not verified", icon: BadgeCheck },
             ]} />

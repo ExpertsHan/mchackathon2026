@@ -14,12 +14,13 @@ Currency = Literal["TWD", "USD", "JPY", "EUR", "AUD", "HKD", "other"]
 
 
 class SourceApplicantInput(BaseModel):
-    """The applicant form. Name and email come from the authenticated profile."""
+    """The applicant form. The name entered here becomes the applicant profile name."""
 
     model_config = ConfigDict(extra="forbid")
 
     # Write-only: hashed for the one-active-application check and never stored.
     id_number: str | None = Field(default=None, max_length=12)
+    name: str | None = Field(default=None, max_length=60)
     phone: str | None = Field(default=None, max_length=30)
     birth_date: date | None = None
     household_address: str | None = Field(default=None, max_length=300)

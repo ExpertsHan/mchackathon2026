@@ -106,7 +106,7 @@ export function AppHeader() {
                 </button>
                 <div className="invisible absolute right-0 top-full z-50 mt-1 w-44 rounded-xl border border-line bg-white p-1 opacity-0 shadow-card transition group-focus-within:visible group-focus-within:opacity-100 group-hover:visible group-hover:opacity-100">
                   <button onClick={logout} className="flex min-h-11 w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100" type="button">
-                    <LogOut className="size-4" aria-hidden="true" /> Switch applicant
+                    <LogOut className="size-4" aria-hidden="true" /> 結束並登出
                   </button>
                 </div>
               </div>
@@ -136,7 +136,7 @@ export function AppHeader() {
               ))}
               {user && !isAdmin ? (
                 <button onClick={logout} className="flex items-center gap-2 rounded-lg px-3 py-3 text-left text-sm font-semibold text-red-700 hover:bg-red-50" type="button">
-                  <LogOut className="size-4" /> Switch applicant
+                  <LogOut className="size-4" /> 結束並登出
                 </button>
               ) : null}
             </nav>

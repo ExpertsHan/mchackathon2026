@@ -178,10 +178,18 @@ def _duplicate_receipt_hash() -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def seed_demo_data(db: Session, *, ingest_policy: bool = True) -> None:
-    """Seed missing records without changing user-created demo applications."""
+def seed_demo_data(
+    db: Session, *, ingest_policy: bool = True, demo_users: bool = True
+) -> None:
+    """Seed missing records without changing user-created demo applications.
+
+    ``demo_users=False`` skips the fictional Alex/Jamie/Taylor profiles and the historical
+    claim: real applicants are created on demand when they open their LINE link.
+    """
 
     for key, values in zip(DEMO_GOVERNMENT_IDS, DEMO_USERS, strict=True):
+        if not demo_users:
+            break
         government_id = DEMO_GOVERNMENT_IDS[key]
         digest = hash_government_id(government_id)
         user = db.get(User, values["id"])
@@ -206,7 +214,7 @@ def seed_demo_data(db: Session, *, ingest_policy: bool = True) -> None:
 
     # One historical successful claim makes the duplicate-receipt scenario real.
     historical = db.scalar(select(Application).where(Application.public_id == "AI-2026-000001"))
-    if historical is None:
+    if historical is None and demo_users:
         receipt_hash = _duplicate_receipt_hash()
         historical = Application(
             public_id="AI-2026-000001",
@@ -315,18 +323,19 @@ def seed_demo_data(db: Session, *, ingest_policy: bool = True) -> None:
                 application=historical,
                 details={"seeded_demo_event": True},
             )
+    floor = 1 if demo_users else 0
     sequence = db.get(ApplicationIdSequence, 2026)
     if sequence is None:
-        db.add(ApplicationIdSequence(year=2026, last_value=1))
-    elif sequence.last_value < 1:
-        sequence.last_value = 1
+        db.add(ApplicationIdSequence(year=2026, last_value=floor))
+    elif sequence.last_value < floor:
+        sequence.last_value = floor
     db.commit()
 
     if ingest_policy and settings.knowledge_dir.exists():
         sync_knowledge(db, settings.knowledge_dir)
 
 
-def reset_demo_data(db: Session) -> None:
+def reset_demo_data(db: Session, *, demo_users: bool = True) -> None:
     """Delete demo state in foreign-key order, then restore the initial seed."""
 
     for model in (
@@ -355,4 +364,4 @@ def reset_demo_data(db: Session) -> None:
         # directory. Never recurse or follow paths during reset.
         if stored_file.is_file() and stored_file.name != ".gitkeep":
             stored_file.unlink()
-    seed_demo_data(db, ingest_policy=True)
+    seed_demo_data(db, ingest_policy=True, demo_users=demo_users)

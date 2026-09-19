@@ -8,7 +8,7 @@ def main() -> None:
         raise SystemExit("Reset is available only when DEMO_MODE=true.")
     init_db()
     with session_scope() as db:
-        reset_demo_data(db)
+        reset_demo_data(db, demo_users=False)
     print("Demo database reset complete.")
 
 

@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.enums import ActorType, ApplicationStatus
 from app.core.errors import DomainError, ResourceNotFound
-from app.core.identity import hash_government_id
+from app.core.identity import hash_government_id, mask_government_id
 from app.models import Application, SourceDocument, SourceReview, User, utcnow
 from app.schemas.source_review import SourceApplicantInput
 from app.services.audit import record_audit
@@ -60,6 +60,7 @@ DOCUMENT_LABELS = {
 MULTI_FILE_TYPES = {"id_card", "receipt"}
 OCR_TYPES = ("receipt", "id_card", "passbook")
 REQUIRED_APPLICANT_FIELDS = {
+    "name": "姓名",
     "phone": "聯絡電話",
     "birth_date": "出生日期",
     "household_address": "戶籍地址",
@@ -218,6 +219,13 @@ def save_applicant(db: Session, application: Application, payload: SourceApplica
             )
         _check_person_has_no_other_open_application(db, application, digest)
         user.government_id_hash = digest
+        user.government_id_masked = mask_government_id(payload.id_number)
+    if payload.name and payload.name.strip():
+        user.name = payload.name.strip()
+    if payload.birth_date:
+        today = date.today()
+        born = payload.birth_date
+        user.age = today.year - born.year - ((today.month, today.day) < (born.month, born.day))
     review = get_review(db, application)
     review.applicant_data = payload.model_dump(mode="json", exclude={"id_number"})
     review.documents_required = True

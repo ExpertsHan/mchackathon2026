@@ -104,14 +104,6 @@ def _demo_user_read(user: User) -> UserRead:
     )
 
 
-@router.get("/api/demo/users", response_model=list[UserRead], tags=["demo"])
-def demo_users(db: Session = Depends(get_db)) -> list[UserRead]:
-    return [
-        _demo_user_read(user)
-        for user in db.scalars(select(User).order_by(User.name)).all()
-    ]
-
-
 @router.post("/api/demo/login", response_model=DemoLoginResponse, tags=["demo"])
 def demo_login(payload: DemoLoginRequest, db: Session = Depends(get_db)) -> DemoLoginResponse:
     user = db.get(User, payload.user_id)
@@ -139,7 +131,7 @@ def demo_reset(db: Session = Depends(get_db)) -> MessageResponse:
             "Demo reset is disabled outside DEMO_MODE.",
             status_code=403,
         )
-    reset_demo_data(db)
+    reset_demo_data(db, demo_users=False)
     return MessageResponse(message="Demo data was reset and reseeded.")
 
 

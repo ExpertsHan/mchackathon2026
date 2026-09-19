@@ -26,7 +26,7 @@ async def lifespan(_: FastAPI):
     settings.receipt_storage_dir.mkdir(parents=True, exist_ok=True)
     if settings.demo_mode:
         with SessionLocal() as db:
-            seed_demo_data(db, ingest_policy=True)
+            seed_demo_data(db, ingest_policy=True, demo_users=False)
     yield
 
 

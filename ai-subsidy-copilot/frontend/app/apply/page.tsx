@@ -19,7 +19,6 @@ import { getErrorMessage } from "@/lib/utils";
 import { useSession } from "@/contexts/session-context";
 
 const initialQuickReplies = ["Is ChatGPT eligible?", "Which documents do I need?", "How is the subsidy calculated?"];
-const PENDING_LINE_CODE = "ai-subsidy-pending-line-code";
 
 function newMessage(role: "assistant" | "user", content: string, extras: Partial<ChatMessageData> = {}): ChatMessageData {
   return { id: `${role}-${Date.now()}-${Math.random().toString(36).slice(2)}`, role, content, ...extras };
@@ -42,7 +41,7 @@ function StepCard({ number, title, done, children, action }: { number: number; t
 
 export default function ApplyPage() {
   const router = useRouter();
-  const { user, activeApplicationId, hydrated, setActiveApplicationId } = useSession();
+  const { user, activeApplicationId, hydrated, setActiveApplicationId, setDemoSession } = useSession();
   const started = useRef(false);
   const safetyReminderRecorded = useRef(false);
   const [application, setApplication] = useState<Application | null>(null);
@@ -96,23 +95,28 @@ export default function ApplyPage() {
     finally { setCreating(false); }
   }, [user, activeApplicationId, setActiveApplicationId, hydrateApplication]);
 
+  const lineStarted = useRef(false);
   useEffect(() => {
     if (!hydrated) return;
-    // A LINE deep link carries a one-time code. Keep it across the login redirect.
+    // A LINE deep link carries a one-time code: it opens (or restores) the applicant tied to that
+    // LINE account, replacing whatever session this browser had before.
     const code = new URLSearchParams(window.location.search).get("line_code");
-    if (code) { try { window.sessionStorage.setItem(PENDING_LINE_CODE, code); } catch { /* storage blocked: link again from LINE */ } }
+    if (code) {
+      if (lineStarted.current) return;
+      lineStarted.current = true;
+      api.startApplicant(code)
+        .then((session) => {
+          started.current = false;
+          setDemoSession(session.user, session.demo_token);
+          window.history.replaceState(null, "", "/apply");
+          setLineNotice("已連結您的 LINE 帳號，審核進度與結果會透過 LINE 通知您。");
+        })
+        .catch((err) => setError(getErrorMessage(err)));
+      return;
+    }
     if (!user) { router.replace("/login"); return; }
     if (!started.current) { started.current = true; void initialize(); }
-  }, [hydrated, user, router, initialize]);
-
-  useEffect(() => {
-    if (!user) return;
-    let code: string | null = null;
-    try { code = window.sessionStorage.getItem(PENDING_LINE_CODE); } catch { return; }
-    if (!code) return;
-    try { window.sessionStorage.removeItem(PENDING_LINE_CODE); } catch { /* ignore */ }
-    api.bindLine(code).then((result) => setLineNotice(result.message)).catch((err) => setLineNotice(getErrorMessage(err)));
-  }, [user]);
+  }, [hydrated, user, router, initialize, setDemoSession]);
 
   useEffect(() => {
     if (!user || !application || safetyReminderRecorded.current) return;
@@ -351,7 +355,7 @@ export default function ApplyPage() {
 
         <aside className="space-y-5 lg:sticky lg:top-24" aria-label="Assistant and progress">
           <Card className="p-4 shadow-none">
-            <div className="mb-4 flex items-center gap-3 border-b border-line pb-3"><span className="grid size-9 place-items-center rounded-lg bg-navy-50 text-navy-700"><UserRound className="size-4" /></span><div><p className="text-sm font-bold text-navy-900">{user.name}</p><p className="text-[11px] text-slate-500">{user.government_id_masked}</p></div><span className="ml-auto inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700"><Check className="size-3.5" /> Verified</span></div>
+            <div className="mb-4 flex items-center gap-3 border-b border-line pb-3"><span className="grid size-9 place-items-center rounded-lg bg-navy-50 text-navy-700"><UserRound className="size-4" /></span><div><p className="text-sm font-bold text-navy-900">{user.name}</p><p className="text-[11px] text-slate-500">{user.government_id_masked}</p></div>{user.identity_verified ? <span className="ml-auto inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700"><Check className="size-3.5" /> Verified</span> : null}</div>
             <CompactProgress labels={[
               { label: "申請人資料", complete: detailsDone },
               { label: "文件上傳", complete: documentsDone },

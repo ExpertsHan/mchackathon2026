@@ -19,6 +19,7 @@ import type {
 import { getErrorMessage } from "@/lib/utils";
 
 interface FormState {
+  name: string;
   id_number: string;
   phone: string;
   birth_date: string;
@@ -43,6 +44,7 @@ const ID_PATTERN = /^[A-Za-z][0-9A-Da-d][0-9]{8}$/;
 
 function initialForm(initial?: SourceApplicant | null): FormState {
   return {
+    name: initial?.name ?? "",
     id_number: "",
     phone: initial?.phone ?? "",
     birth_date: initial?.birth_date ?? "",
@@ -156,6 +158,7 @@ export function ApplicantForm({ publicId, initial, disabled, onDraftChange, onSa
     setSaving(true);
     try {
       const payload: SourceApplicant = {
+        name: form.name.trim(),
         phone: form.phone.trim(),
         birth_date: form.birth_date.trim(),
         household_address: form.household_address.trim(),
@@ -189,6 +192,7 @@ export function ApplicantForm({ publicId, initial, disabled, onDraftChange, onSa
     <form onSubmit={save} className="space-y-6" aria-label="申請人資料">
       <fieldset disabled={disabled || saving} className="space-y-5">
         <div className="grid gap-4 sm:grid-cols-2">
+          <Field id="name" label="姓名" error={fieldErrors.name} hint="請填寫與身分證、收據相同的姓名。"><input id="name" className={inputClassName} maxLength={60} autoComplete="name" value={form.name} onChange={(e) => set("name", e.target.value)} /></Field>
           <Field id="id_number" label="身分證字號" required={false} error={fieldErrors.id_number} hint="僅用於確認同一人同時只能有一筆申請與文件比對；系統只保存遮罩與雜湊，不保存明碼。">
             <input id="id_number" aria-invalid={Boolean(fieldErrors.id_number)} aria-describedby={fieldErrors.id_number ? "id_number-error" : undefined} className={inputClassName} maxLength={12} placeholder="A123456789" autoComplete="off" value={form.id_number} onChange={(e) => set("id_number", e.target.value.toUpperCase())} />
           </Field>
