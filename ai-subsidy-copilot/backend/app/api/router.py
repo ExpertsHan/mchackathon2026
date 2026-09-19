@@ -65,7 +65,7 @@ from app.services.applications import (
     submit_application,
 )
 from app.services.audit import record_audit
-from app.services.demo import reset_demo_data
+from app.services.demo import DEMO_GOVERNMENT_IDS, DEMO_USER_IDS, reset_demo_data
 from app.services.line_notify import notify_status
 from app.services.payments import process_payment
 from app.services.queries import (
@@ -87,10 +87,29 @@ from app.services.verification import run_verification
 
 router = APIRouter()
 
+_DEMO_GOVERNMENT_ID_BY_USER_ID = {
+    DEMO_USER_IDS[key]: government_id for key, government_id in DEMO_GOVERNMENT_IDS.items()
+}
+
+
+def _demo_user_read(user: User) -> UserRead:
+    """Expose full fictional IDs only through the explicit demo-login surface."""
+
+    return UserRead.model_validate(user).model_copy(
+        update={
+            "government_id_masked": _DEMO_GOVERNMENT_ID_BY_USER_ID.get(
+                user.id, user.government_id_masked
+            )
+        }
+    )
+
 
 @router.get("/api/demo/users", response_model=list[UserRead], tags=["demo"])
-def demo_users(db: Session = Depends(get_db)) -> list[User]:
-    return list(db.scalars(select(User).order_by(User.name)).all())
+def demo_users(db: Session = Depends(get_db)) -> list[UserRead]:
+    return [
+        _demo_user_read(user)
+        for user in db.scalars(select(User).order_by(User.name)).all()
+    ]
 
 
 @router.post("/api/demo/login", response_model=DemoLoginResponse, tags=["demo"])
@@ -108,7 +127,7 @@ def demo_login(payload: DemoLoginRequest, db: Session = Depends(get_db)) -> Demo
     )
     db.commit()
     return DemoLoginResponse(
-        user=UserRead.model_validate(user), demo_token=issue_demo_token(user.id)
+        user=_demo_user_read(user), demo_token=issue_demo_token(user.id)
     )
 
 

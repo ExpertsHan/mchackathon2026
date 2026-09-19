@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 
 from app.core.enums import ApplicationStatus
 from app.models import Application, AuditLog, ClaimReservation, User
-from app.services.demo import DEMO_USER_IDS
+from app.services.demo import DEMO_GOVERNMENT_IDS, DEMO_USER_IDS
 
 
 def approve(client: TestClient, public_id: str, **extra):
@@ -27,6 +27,30 @@ def approve(client: TestClient, public_id: str, **extra):
         f"/api/admin/applications/{public_id}/approve",
         json={**REVIEWER, "reason": "文件核對無誤", **extra},
     )
+
+
+def test_demo_login_surfaces_show_full_fictional_ids_without_changing_stored_masks(
+    client: TestClient, db: Session
+) -> None:
+    users = client.get("/api/demo/users")
+    assert users.status_code == 200
+    displayed = {item["name"]: item["government_id_masked"] for item in users.json()}
+    assert displayed == {
+        "Alex Chen": DEMO_GOVERNMENT_IDS["alex"],
+        "Jamie Lin": DEMO_GOVERNMENT_IDS["jamie"],
+        "Taylor Wang": DEMO_GOVERNMENT_IDS["taylor"],
+    }
+
+    login = client.post(
+        "/api/demo/login", json={"user_id": str(DEMO_USER_IDS["alex"])}
+    )
+    assert login.status_code == 200
+    assert login.json()["user"]["government_id_masked"] == DEMO_GOVERNMENT_IDS["alex"]
+
+    # Full values are presentation-only. Persistence and non-demo APIs stay masked.
+    stored = db.get(User, DEMO_USER_IDS["alex"])
+    assert stored is not None
+    assert stored.government_id_masked == "A12****789"
 
 
 def test_happy_path_goes_to_human_review_then_approval_and_payment(

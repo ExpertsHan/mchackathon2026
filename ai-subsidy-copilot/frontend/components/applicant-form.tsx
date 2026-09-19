@@ -76,7 +76,7 @@ export function ApplicantForm({ publicId, initial, disabled, onSaved }: {
             <input id="id_number" className={inputClassName} maxLength={10} placeholder="A123456789" autoComplete="off" value={form.id_number} onChange={(e) => set("id_number", e.target.value.toUpperCase())} />
           </Field>
           <Field id="phone" label="聯絡電話"><input id="phone" type="tel" className={inputClassName} placeholder="0912345678" value={text("phone")} onChange={(e) => set("phone", e.target.value)} /></Field>
-          <Field id="birth_date" label="出生日期" hint="須為民國 74 年 4 月 3 日至 99 年 4 月 2 日（16~40 歲）"><input id="birth_date" type="date" className={inputClassName} value={text("birth_date")} onChange={(e) => set("birth_date", e.target.value)} /></Field>
+          <Field id="birth_date" label="出生日期" hint="須為西元 1985 年 4 月 3 日至 2010 年 4 月 2 日（16~40 歲）"><input id="birth_date" type="date" className={inputClassName} value={text("birth_date")} onChange={(e) => set("birth_date", e.target.value)} /></Field>
           <div className="hidden sm:block" />
           <Field id="household_address" label="戶籍地址"><input id="household_address" className={inputClassName} value={text("household_address")} onChange={(e) => set("household_address", e.target.value)} /></Field>
           <Field id="mailing_address" label="通訊地址"><input id="mailing_address" className={inputClassName} value={text("mailing_address")} onChange={(e) => set("mailing_address", e.target.value)} /></Field>
@@ -98,7 +98,7 @@ export function ApplicantForm({ publicId, initial, disabled, onSaved }: {
             </Field>
             <Field id="applied_tool_name" label="軟體名稱"><input id="applied_tool_name" className={inputClassName} placeholder="例如：ChatGPT Plus、Canva Pro" value={text("applied_tool_name")} onChange={(e) => set("applied_tool_name", e.target.value)} /></Field>
             <Field id="software_company" label="軟體公司名稱"><input id="software_company" className={inputClassName} placeholder="例如：OpenAI、Canva Inc." value={text("software_company")} onChange={(e) => set("software_company", e.target.value)} /></Field>
-            <Field id="purchase_date" label="購買日期" hint="須介於民國 115 年 4 月 2 日至 10 月 31 日"><input id="purchase_date" type="date" className={inputClassName} value={text("purchase_date")} onChange={(e) => set("purchase_date", e.target.value)} /></Field>
+            <Field id="purchase_date" label="購買日期" hint="須介於西元 2026 年 4 月 2 日至 2026 年 10 月 31 日"><input id="purchase_date" type="date" className={inputClassName} value={text("purchase_date")} onChange={(e) => set("purchase_date", e.target.value)} /></Field>
             <Field id="is_own_credit_card" label="是否本人信用卡">
               <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="是否本人信用卡">
                 <Radio name="own_card" value={true} current={form.is_own_credit_card} onChange={(v) => set("is_own_credit_card", v)}>本人信用卡</Radio>

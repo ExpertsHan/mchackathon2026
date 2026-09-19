@@ -60,7 +60,7 @@ export default function LoginPage() {
       <SectionHeading eyebrow="Demo government login" title="Choose a fictional applicant" description="No real identity provider is connected. These profiles contain fake values created only for this demonstration." />
 
       <Alert className="mt-6" tone="info" title="Identity simulation">
-        Selecting a profile simulates successful government sign-in. The applicant’s masked demo ID is the only identifier displayed.
+        Selecting a profile simulates successful government sign-in. These full ID numbers are fictional and are displayed only for this demo.
       </Alert>
 
       {error ? (

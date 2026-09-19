@@ -212,7 +212,7 @@ function resolveEligibleAmount(receiptReady, receiptList, paymentType, mergedRec
 function ruleAge(application) {
   const ok = checkAge(application.birth_date);
   if (ok === true) return { status: 'pass', result: null, reason: '出生日期符合16~40歲資格範圍', risk: 'info' };
-  if (ok === false) return { status: 'fail', result: 'REJECT', reason: `出生日期（${application.birth_date}）不在補助資格範圍（民國74年4月3日～99年4月2日）內`, risk: 'high' };
+  if (ok === false) return { status: 'fail', result: 'REJECT', reason: `出生日期（${application.birth_date}）不在補助資格範圍（西元1985年4月3日～2010年4月2日）內`, risk: 'high' };
   return { status: 'unknown', result: 'REVIEW', reason: '無法判讀出生日期，需人工確認年齡資格', risk: 'medium' };
 }
 
@@ -227,7 +227,7 @@ function ruleRegistration(idCardReady, idCard) {
 function rulePurchaseDateRange(application) {
   const ok = checkPurchaseDateRange(application.purchase_date);
   if (ok === true) return { status: 'pass', result: null, reason: '購買日期在受理期間內', risk: 'info' };
-  if (ok === false) return { status: 'fail', result: 'REJECT', reason: `購買日期（${application.purchase_date}）不在補助受理期間（民國115年4月2日～10月31日）內`, risk: 'high' };
+  if (ok === false) return { status: 'fail', result: 'REJECT', reason: `購買日期（${application.purchase_date}）不在補助受理期間（西元2026年4月2日～2026年10月31日）內`, risk: 'high' };
   return { status: 'unknown', result: 'NEED_SUPPLEMENT', reason: '無法判讀購買日期，請確認填寫或提供更清楚的收據', risk: 'medium' };
 }
 
@@ -353,9 +353,9 @@ function ruleDuplicateReceipt(duplicateApplicationId) {
 // ---------- 每條規則的中繼資料：判斷條件／資料來源／對應的 OCR 欄位 ----------
 // data_source 的值：applicant_input（申請人填寫）／ocr:xxx（OCR擷取，xxx是文件類型）／knowledge_base（知識庫）／rule_engine（規則引擎自身邏輯）
 const RULE_META = {
-  'RULE-001': { name: '年齡', condition: '出生日期需介於民國74年4月3日～99年4月2日（16~40歲）', data_source: 'applicant_input', ocr_field: null },
+  'RULE-001': { name: '年齡', condition: '出生日期需介於西元1985年4月3日～2010年4月2日（16~40歲）', data_source: 'applicant_input', ocr_field: null },
   'RULE-002': { name: '設籍新竹市', condition: '身分證地址須為新竹市', data_source: 'ocr:id_card', ocr_field: 'address' },
-  'RULE-003': { name: '購買日期區間', condition: '購買日期需介於民國115年4月2日～10月31日', data_source: 'applicant_input', ocr_field: null },
+  'RULE-003': { name: '購買日期區間', condition: '購買日期需介於西元2026年4月2日～2026年10月31日', data_source: 'applicant_input', ocr_field: null },
   'RULE-004': { name: '申請期限', condition: '需於購買後1個月(月費制)/2個月(年費制)內送出申請', data_source: 'applicant_input', ocr_field: null },
   'RULE-005': { name: 'AI工具分類', condition: '申請人選擇分類需與知識庫分類一致（不一致時建議人工確認，不直接退件）', data_source: 'ocr:receipt + knowledge_base', ocr_field: 'product_name,company_name' },
   'RULE-006': { name: '中國/港澳地區', condition: '工具開發/營運地區不得為中國大陸/港澳', data_source: 'ocr:receipt + knowledge_base', ocr_field: 'product_name,company_name' },

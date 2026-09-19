@@ -13,7 +13,7 @@ import { ApplicantForm } from "@/components/applicant-form";
 import { DocumentUploader } from "@/components/document-uploader";
 import { CitizenReviewSummary } from "@/components/source-review";
 import { api } from "@/lib/api";
-import { CANCELLABLE_STATUSES, OPEN_STATUSES, missingApplicantFields } from "@/lib/intake";
+import { CANCELLABLE_STATUSES, OPEN_STATUSES, missingApplicantFields, submissionIssueFromError, type SubmissionIssueTarget, type SubmissionIssue } from "@/lib/intake";
 import type { AgentStreamEvent, Application, ChatMessageData, SafetyProgress, SourceReview } from "@/lib/types";
 import { getErrorMessage } from "@/lib/utils";
 import { useSession } from "@/contexts/session-context";
@@ -56,6 +56,7 @@ export default function ApplyPage() {
   const [assistantAwaiting, setAssistantAwaiting] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [submissionIssue, setSubmissionIssue] = useState<SubmissionIssue | null>(null);
   const [lineNotice, setLineNotice] = useState<string | null>(null);
 
   const hydrateApplication = useCallback((data: Application) => {
@@ -200,13 +201,14 @@ export default function ApplyPage() {
   }
 
   async function onReview(next: SourceReview) {
+    setSubmissionIssue(null);
     setReview(next);
     if (application) await refresh(application.public_id).catch(() => undefined);
   }
 
   async function recheck() {
     if (!application) return;
-    setActionLoading("recheck"); setError(null);
+    setActionLoading("recheck"); setError(null); setSubmissionIssue(null);
     try { setReview(await api.analyzeSources(application.public_id)); }
     catch (err) { setError(getErrorMessage(err)); }
     finally { setActionLoading(null); }
@@ -214,18 +216,31 @@ export default function ApplyPage() {
 
   async function submitApplication() {
     if (!application) return;
-    setActionLoading("submit"); setError(null);
+    setActionLoading("submit"); setError(null); setSubmissionIssue(null);
     try {
       const result = await api.submitApplication(application.public_id);
       hydrateApplication(result);
       router.push(`/application/${result.public_id}?submitted=1`);
-    } catch (err) { setError(getErrorMessage(err)); }
+    } catch (err) {
+      setSubmissionIssue(submissionIssueFromError(
+        err,
+        applicantMissing,
+        review?.missing_documents.map((item) => item.label) ?? [],
+      ));
+    }
     finally { setActionLoading(null); }
+  }
+
+  function goToSubmissionIssue(target: SubmissionIssueTarget) {
+    if (target === "details") setEditingDetails(true);
+    window.requestAnimationFrame(() => {
+      document.getElementById(`application-${target}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
   }
 
   async function cancelApplication() {
     if (!application || !window.confirm("確定要取消這筆申請嗎？取消後可重新開始新的申請。")) return;
-    setActionLoading("cancel"); setError(null);
+    setActionLoading("cancel"); setError(null); setSubmissionIssue(null);
     try {
       await api.cancelApplication(application.public_id);
       setActiveApplicationId(null);
@@ -242,7 +257,24 @@ export default function ApplyPage() {
     <PageContainer>
       <SectionHeading eyebrow="Citizen application" title={`Welcome, ${user.name.split(" ")[0]}`} description="Follow the steps below or ask the assistant a policy question at any time." action={application ? <span className="rounded-lg border border-line bg-white px-3 py-2 font-mono text-xs font-bold text-navy-700">{application.public_id}</span> : undefined} />
       <div className="mt-6"><ProgressIndicator currentStep={currentStep} completedSteps={completeSteps} /></div>
-      {error ? <Alert className="mt-5" tone="error" title="Action could not be completed">{error}</Alert> : null}
+      {error ? <Alert className="mt-5" tone="error" title="操作未完成">{error}</Alert> : null}
+      {submissionIssue ? (
+        <Alert className="mt-5" tone="error" title="申請尚未送出">
+          <p>{submissionIssue.summary}</p>
+          {submissionIssue.missing.length ? (
+            <div className="mt-2">
+              <p className="font-semibold">缺少或需要修正：</p>
+              <ul className="mt-1 list-disc space-y-1 pl-5">
+                {submissionIssue.missing.map((item) => <li key={item}>{item}</li>)}
+              </ul>
+            </div>
+          ) : null}
+          <p className="mt-2 font-medium">{submissionIssue.action}</p>
+          <Button className="mt-3" size="sm" variant="outline" onClick={() => goToSubmissionIssue(submissionIssue.target)}>
+            前往需要處理的位置
+          </Button>
+        </Alert>
+      ) : null}
       {lineNotice ? <Alert className="mt-5" tone="info" title="LINE">{lineNotice}</Alert> : null}
       {needsMoreInformation ? (
         <Alert className="mt-5" tone="warning" title="需要補件">
@@ -263,7 +295,7 @@ export default function ApplyPage() {
         <div className="space-y-5">
           {!application ? <Card><LoadingState label="Creating application…" /></Card> : (
             <>
-              <StepCard number={2} title="申請人資料" done={detailsDone} action={detailsDone && editable && !editingDetails ? <Button size="sm" variant="outline" onClick={() => setEditingDetails(true)}><Pencil className="size-4" /> 修改</Button> : undefined}>
+              <div id="application-details"><StepCard number={2} title="申請人資料" done={detailsDone} action={detailsDone && editable && !editingDetails ? <Button size="sm" variant="outline" onClick={() => setEditingDetails(true)}><Pencil className="size-4" /> 修改</Button> : undefined}>
                 {detailsDone && !editingDetails ? (
                   <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
                     <div><dt className="text-xs text-slate-500">軟體</dt><dd className="font-semibold text-navy-900">{review?.applicant_data.applied_tool_name}（{review?.applicant_data.software_company}）</dd></div>
@@ -274,30 +306,30 @@ export default function ApplyPage() {
                 ) : (
                   <ApplicantForm key={editingDetails ? "edit" : "new"} publicId={application.public_id} initial={review?.applicant_data} disabled={!editable} onSaved={async (next) => { setEditingDetails(false); await onReview(next); }} />
                 )}
-              </StepCard>
+              </StepCard></div>
 
-              <StepCard number={3} title="上傳文件" done={documentsDone}>
+              <div id="application-documents"><StepCard number={3} title="上傳文件" done={documentsDone}>
                 {detailsDone && review ? (
                   <>
                     <p className="mb-4 text-xs leading-5 text-slate-600">上傳後系統會自動辨識並與您填寫的資料交叉比對。文件僅供本案審核使用。</p>
                     <DocumentUploader publicId={application.public_id} review={review} disabled={!editable} onUpdated={onReview} />
                   </>
                 ) : <p className="text-sm text-slate-500">請先儲存申請人資料，系統會依申請身分與付款方式列出需要的文件。</p>}
-              </StepCard>
+              </StepCard></div>
 
-              <StepCard number={4} title="規則檢查結果" done={checked} action={detailsDone && editable ? <Button size="sm" variant="outline" loading={actionLoading === "recheck"} onClick={recheck}><RefreshCw className="size-4" /> 重新檢查</Button> : undefined}>
+              <div id="application-review"><StepCard number={4} title="規則檢查結果" done={checked} action={detailsDone && editable ? <Button size="sm" variant="outline" loading={actionLoading === "recheck"} onClick={recheck}><RefreshCw className="size-4" /> 重新檢查</Button> : undefined}>
                 <CitizenReviewSummary review={review} />
-              </StepCard>
+              </StepCard></div>
 
               {editable ? (
-                <StepCard number={5} title="送出申請" done={false}>
+                <div id="application-submit"><StepCard number={5} title="送出申請" done={false}>
                   <div className="flex items-start gap-3 text-xs leading-5 text-slate-600"><ShieldCheck className="mt-0.5 size-4 shrink-0 text-teal-700" /><p>送出後所有案件都會交由承辦人員複核；AI 與規則引擎不會自動核准，也無法授權撥款。若文件不齊全，系統會通知您補件。</p></div>
                   <div className="mt-4 flex flex-wrap gap-2">
                     <Button size="lg" loading={actionLoading === "submit"} disabled={!detailsDone || !documentsDone} onClick={submitApplication}><FileCheck2 className="size-5" /> {needsMoreInformation ? "補件完成，重新送出" : "確認送出申請"}</Button>
                     {CANCELLABLE_STATUSES.includes(application.status) ? <Button size="lg" variant="outline" loading={actionLoading === "cancel"} onClick={cancelApplication}><Ban className="size-5" /> 取消這筆申請</Button> : null}
                   </div>
                   {!detailsDone || !documentsDone ? <p className="mt-3 text-xs text-slate-500">請先完成{!detailsDone ? "申請人資料" : "文件上傳"}才能送出。</p> : null}
-                </StepCard>
+                </StepCard></div>
               ) : null}
             </>
           )}
