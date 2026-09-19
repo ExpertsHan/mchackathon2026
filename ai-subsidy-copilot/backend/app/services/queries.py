@@ -215,6 +215,7 @@ def timeline(db: Session, public_id: str) -> TimelineResponse:
             details=_public_audit_details(log.details_json),
         )
         for log in audit_logs
+        if not log.action.startswith("SAFETY_")
     ]
     return TimelineResponse(
         public_id=application.public_id,

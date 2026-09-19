@@ -23,6 +23,8 @@ TOKEN_ALIASES = {
     "duplicate": {"duplicate", "same", "receipt", "claim"},
     "monthly": {"monthly", "month", "calendar", "limit"},
     "safety": {"safety", "training", "modules", "course"},
+    "privacy": {"privacy", "confidential", "identifiers", "authorization", "data"},
+    "meeting": {"meeting", "notes", "confidential", "privacy", "authorization"},
     "payment": {"payment", "paid", "approval", "treasury"},
     "amount": {"amount", "maximum", "600", "reimbursement", "cost"},
 }
@@ -91,6 +93,11 @@ POLICY_QUERY_TERMS = {
     "eligibility",
     "hallucination",
     "identity",
+    "authorization",
+    "confidential",
+    "data",
+    "meeting",
+    "notes",
     "month",
     "monthly",
     "payment",
@@ -253,10 +260,24 @@ def _deterministic_answer(query: str, results: list[PolicySearchResult]) -> str:
             "The fictional demo program reimburses the eligible cost in TWD up to NT$600 per "
             "calendar month. Foreign-currency demo receipts use a clearly labelled mock rate."
         )
-    if "age" in lowered or "old" in lowered:
+    if re.search(r"\b(age|old)\b", lowered):
         return "Applicants must have verified demo identity and be at least 18 years old."
+    if any(
+        word in lowered
+        for word in ("privacy", "confidential", "meeting", "identifier", "personal data")
+    ):
+        return (
+            "Before sharing meeting notes with an AI service, check your organization's rules and "
+            "whether you are authorized to use that service. Remove names, identifiers, and "
+            "confidential details that are not needed, and use a fictional excerpt when possible. "
+            "Removing names alone does not guarantee safety. This guidance cannot determine "
+            "whether your organization has authorized a particular use."
+        )
     if "safety" in lowered or "training" in lowered:
-        return "All required AI Safety Training modules must be completed before submission."
+        return (
+            "AI safety learning and scenario practice are optional. Participation does not affect "
+            "application eligibility, submission, review, or payment."
+        )
     if "duplicate" in lowered:
         return (
             "The same receipt cannot be reimbursed twice, and a duplicate is sent to human review."
@@ -288,6 +309,19 @@ def answer_policy_question(db: Session, query: str, *, top_k: int = 4) -> Policy
             answer=(
                 "I cannot establish an answer from the current fictional demo policy. "
                 "A government reviewer would need to clarify this question."
+            ),
+            citations=[],
+            established=False,
+            ai_used=False,
+        )
+
+    if "meeting" in query.lower() and not any(
+        "meeting notes" in result.content.lower() and result.topic == "privacy"
+        for result in results
+    ):
+        return PolicyAnswer(
+            answer=(
+                "I cannot establish guidance for meeting notes from the available safety material."
             ),
             citations=[],
             established=False,

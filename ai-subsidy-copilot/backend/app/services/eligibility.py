@@ -214,13 +214,13 @@ def evaluate_eligibility(data: EligibilityInput) -> EligibilityEvaluation:
     checks.append(
         EligibilityCheck(
             rule=EligibilityRule.SAFETY_TRAINING_COMPLETED,
-            passed=data.safety_complete,
+            passed=True,
             message=(
-                "All required AI safety modules are complete."
+                "Optional AI safety learning is complete."
                 if data.safety_complete
-                else "All required AI safety modules must be completed before submission."
+                else "AI safety learning is optional and does not affect eligibility or submission."
             ),
-            blocking=not data.safety_complete,
+            blocking=False,
         )
     )
 
@@ -234,21 +234,9 @@ def evaluate_eligibility(data: EligibilityInput) -> EligibilityEvaluation:
     all_passed = all(check.passed for check in checks)
     amount_valid = data.amount_twd is not None and data.amount_twd > 0
     eligible = all_passed and amount_valid and not requires_manual_review
-    only_safety_missing = (
-        not data.safety_complete
-        and amount_valid
-        and not requires_manual_review
-        and all(
-            check.passed
-            for check in checks
-            if check.rule is not EligibilityRule.SAFETY_TRAINING_COMPLETED
-        )
-    )
 
     if eligible:
         outcome = EligibilityOutcome.ELIGIBLE
-    elif only_safety_missing:
-        outcome = EligibilityOutcome.PROVISIONALLY_ELIGIBLE
     elif requires_manual_review:
         outcome = EligibilityOutcome.MANUAL_REVIEW
     else:
@@ -257,7 +245,7 @@ def evaluate_eligibility(data: EligibilityInput) -> EligibilityEvaluation:
     estimated = calculate_subsidy(data.amount_twd)
     return EligibilityEvaluation(
         eligible=eligible,
-        provisionally_eligible=only_safety_missing,
+        provisionally_eligible=False,
         requires_manual_review=requires_manual_review,
         outcome=outcome,
         approved_amount_twd=estimated if eligible else Decimal("0.00"),
@@ -269,9 +257,7 @@ def evaluate_eligibility(data: EligibilityInput) -> EligibilityEvaluation:
 
 
 def safety_training_complete(db: Session, user_id: uuid.UUID) -> bool:
-    required_count = (
-        db.scalar(select(func.count(SafetyModule.id)).where(SafetyModule.required.is_(True))) or 0
-    )
+    total_count = db.scalar(select(func.count(SafetyModule.id))) or 0
     completed_count = (
         db.scalar(
             select(func.count(SafetyProgress.id))
@@ -279,12 +265,11 @@ def safety_training_complete(db: Session, user_id: uuid.UUID) -> bool:
             .where(
                 SafetyProgress.user_id == user_id,
                 SafetyProgress.completed.is_(True),
-                SafetyModule.required.is_(True),
             )
         )
         or 0
     )
-    return required_count > 0 and completed_count >= required_count
+    return total_count > 0 and completed_count >= total_count
 
 
 def _duplicate_receipt_exists(

@@ -69,12 +69,14 @@ def test_monthly_duplicate_requires_high_risk_review() -> None:
     assert check(result, EligibilityRule.MONTHLY_LIMIT).passed is False
 
 
-def test_safety_incomplete_is_only_provisional_and_cannot_submit() -> None:
+def test_optional_safety_learning_does_not_change_eligibility() -> None:
     result = evaluate_eligibility(valid_input(safety_complete=False))
-    assert result.eligible is False
-    assert result.provisionally_eligible is True
-    assert result.outcome is EligibilityOutcome.PROVISIONALLY_ELIGIBLE
-    assert check(result, EligibilityRule.SAFETY_TRAINING_COMPLETED).passed is False
+    assert result.eligible is True
+    assert result.provisionally_eligible is False
+    assert result.outcome is EligibilityOutcome.ELIGIBLE
+    safety = check(result, EligibilityRule.SAFETY_TRAINING_COMPLETED)
+    assert safety.passed is True
+    assert safety.blocking is False
 
 
 @pytest.mark.parametrize(

@@ -94,8 +94,8 @@ def complete_safety(user: dict[str, Any]) -> None:
         )
         assert result["correct"] is True, module["slug"]
     progress = call("GET", f"/api/users/{user['id']}/safety-progress", token=token)
-    assert progress["all_required_complete"] is True
-    assert progress["completed_required"] == progress["total_required"] == 4
+    assert progress["all_complete"] is True
+    assert progress["completed_count"] == progress["total_count"] == 4
 
 
 def happy_path() -> None:
@@ -128,23 +128,18 @@ def happy_path() -> None:
     assert receipt["subscription"]["product"] == "ChatGPT Plus"
     assert receipt["subscription"]["amount_twd"] == "600.00"
 
-    provisional = call(
-        "POST",
-        f"/api/applications/{public_id}/eligibility/check",
-        token=alex["_demo_token"],
-    )
-    assert provisional["provisionally_eligible"] is True
-    complete_safety(alex)
     eligible = call(
         "POST",
         f"/api/applications/{public_id}/eligibility/check",
         token=alex["_demo_token"],
     )
     assert eligible["eligible"] is True
+    assert eligible["provisionally_eligible"] is False
     assert eligible["approved_amount_twd"] == "600.00"
 
     submitted = call("POST", f"/api/applications/{public_id}/submit", token=alex["_demo_token"])
     assert submitted["application"]["status"] == "APPROVED"
+    complete_safety(alex)
     first_payment = call("POST", f"/api/admin/applications/{public_id}/process-payment")
     second_payment = call("POST", f"/api/admin/applications/{public_id}/process-payment")
     assert first_payment["status"] == "PAID"

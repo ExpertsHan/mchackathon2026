@@ -47,9 +47,9 @@ The same receipt may not be reimbursed more than once. The system compares the S
 
 A citizen may receive at most one reimbursement for each calendar month. A prior application in APPROVED, PAYMENT_SCHEDULED, or PAID status for the same purchase month consumes the monthly allowance. A possible duplicate monthly claim requires human review.
 
-## Article 9 — AI Safety Training
+## Article 9 — Optional AI Safety Learning
 
-All four required AI safety modules must be completed before an application can be submitted. The required topics are privacy, hallucinations, prompt injection and suspicious content, and human responsibility. Wrong quiz answers may be retried.
+AI safety learning must not become a barrier to applying for the subsidy. Applicants may review four optional topics: privacy, hallucinations, prompt injection and suspicious content, and human responsibility. An optional, skippable scenario exercise may be offered after submission with an immediate explanation and no required retake. Exposure, participation, and understanding are measured separately. Participation and answers never affect eligibility, submission, review, approval, or payment.
 
 ## Article 10 — Manual Review
 

@@ -23,7 +23,7 @@ Up to NT$600 for one eligible subscription per calendar month. The amount is the
 
 ## Can I submit before completing safety training?
 
-No. You may prepare the rest of the application and see a provisional eligibility result, but Article 9 requires all four modules before final submission.
+Yes. AI safety learning is optional under Article 9. You may submit without opening or completing the lessons, and participation never affects eligibility, review, approval, or payment.
 
 ## What happens if the receipt is unclear?
 

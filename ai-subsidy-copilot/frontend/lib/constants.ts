@@ -32,7 +32,6 @@ export const APPLICATION_STEPS = [
   { key: "subscription", label: "Subscription", shortLabel: "Tool" },
   { key: "receipt", label: "Receipt", shortLabel: "Receipt" },
   { key: "eligibility", label: "Eligibility", shortLabel: "Check" },
-  { key: "safety", label: "AI Safety", shortLabel: "Safety" },
   { key: "submit", label: "Submit", shortLabel: "Submit" },
 ] as const;
 

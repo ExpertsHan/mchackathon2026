@@ -187,7 +187,7 @@ class SafetyModule(Base):
     slug: Mapped[str] = mapped_column(String(80), nullable=False, unique=True)
     title: Mapped[str] = mapped_column(String(160), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
-    required: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    required: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     order_index: Mapped[int] = mapped_column(Integer, nullable=False)
     question: Mapped[str] = mapped_column(Text, nullable=False)
     choices_json: Mapped[list[dict[str, str]]] = mapped_column(JSON, nullable=False, default=list)

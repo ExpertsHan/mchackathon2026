@@ -42,15 +42,6 @@ class InvalidStateTransition(DomainError):
         )
 
 
-class SafetyTrainingIncomplete(DomainError):
-    def __init__(self) -> None:
-        super().__init__(
-            "SAFETY_TRAINING_INCOMPLETE",
-            "Complete all required AI safety modules before submission.",
-            status_code=409,
-        )
-
-
 class PaymentNotAllowed(DomainError):
     def __init__(self, status: str) -> None:
         super().__init__(

@@ -40,6 +40,7 @@ export default function ApplyPage() {
   const router = useRouter();
   const { user, activeApplicationId, hydrated, setActiveApplicationId } = useSession();
   const started = useRef(false);
+  const safetyReminderRecorded = useRef(false);
   const [application, setApplication] = useState<Application | null>(null);
   const [subscription, setSubscription] = useState<Subscription | null>(null);
   const [eligibility, setEligibility] = useState<EligibilityResult | null>(null);
@@ -95,6 +96,27 @@ export default function ApplyPage() {
     if (!started.current) { started.current = true; void initialize(); }
   }, [hydrated, user, router, initialize]);
 
+  const chooseProduct = useCallback(async (product: ProductOption) => {
+    if (!application || actionLoading || !user) return;
+    setActionLoading("product"); setError(null);
+    try {
+      const result = await api.setSubscription(application.public_id, product.provider, product.product);
+      const nextSubscription = ("public_id" in result ? result.subscription : result) as Subscription;
+      setSubscription(nextSubscription);
+      setReceiptConfirmed(false); setEligibility(null);
+      setMessages((current) => [...current, newMessage("user", product.product)]);
+      setAssistantLoading(true); setAssistantAwaiting(true);
+      try {
+        const response = await api.chat({ user_id: user.id, application_id: application.public_id, message: `Is ${product.product} eligible under the current program?` });
+        setMessages((current) => [...current, newMessage("assistant", response.message, { citations: response.citations })]);
+        setQuickReplies(["What should my receipt show?", "How much could I receive?"]);
+      } catch (err) {
+        setMessages((current) => [...current, newMessage("assistant", `I saved your selection, but policy assistance is temporarily unavailable. ${getErrorMessage(err)} You can continue by uploading your receipt.`, { tone: "warning" })]);
+      } finally { setAssistantLoading(false); setAssistantAwaiting(false); }
+    } catch (err) { setError(getErrorMessage(err)); }
+    finally { setActionLoading(null); }
+  }, [actionLoading, application, user]);
+
   const autoSelectedProduct = useRef(false);
 
   useEffect(() => {
@@ -106,7 +128,17 @@ export default function ApplyPage() {
     if (!match) return;
     autoSelectedProduct.current = true;
     void chooseProduct(match);
-  }, [application, subscription, actionLoading]);
+  }, [application, subscription?.product, actionLoading, chooseProduct]);
+
+  useEffect(() => {
+    if (!user || !application || safetyReminderRecorded.current) return;
+    safetyReminderRecorded.current = true;
+    void api.recordSafetyEngagement({
+      user_id: user.id,
+      application_id: application.public_id,
+      event: "CHAT_REMINDER_VIEWED",
+    }).catch(() => undefined);
+  }, [user, application]);
 
   const completeSteps = useMemo(() => {
     const steps: number[] = [];
@@ -114,13 +146,12 @@ export default function ApplyPage() {
     if (subscription?.product) steps.push(2);
     if (hasUploadedReceipt(subscription)) steps.push(3);
     if (eligibility) steps.push(4);
-    if (safetyProgress?.complete) steps.push(5);
-    if (application && !["DRAFT", "REQUESTED_INFORMATION"].includes(application.status)) steps.push(6);
+    if (application && !["DRAFT", "REQUESTED_INFORMATION"].includes(application.status)) steps.push(5);
     return steps;
-  }, [user, subscription, eligibility, safetyProgress, application]);
+  }, [user, subscription, eligibility, application]);
 
   const needsMoreInformation = application?.status === "REQUESTED_INFORMATION";
-  const currentStep = needsMoreInformation && !evidenceUpdated ? 3 : !subscription?.product ? 2 : !hasUploadedReceipt(subscription) ? 3 : !eligibility ? 4 : !safetyProgress?.complete ? 5 : 6;
+  const currentStep = needsMoreInformation && !evidenceUpdated ? 3 : !subscription?.product ? 2 : !hasUploadedReceipt(subscription) ? 3 : !eligibility ? 4 : 5;
 
   async function sendChat(message: string) {
     if (!user || assistantLoading) return;
@@ -185,27 +216,6 @@ export default function ApplyPage() {
     } finally { setAssistantLoading(false); setAssistantAwaiting(false); }
   }
 
-  async function chooseProduct(product: ProductOption) {
-    if (!application || actionLoading) return;
-    setActionLoading("product"); setError(null);
-    try {
-      const result = await api.setSubscription(application.public_id, product.provider, product.product);
-      const nextSubscription = ("public_id" in result ? result.subscription : result) as Subscription;
-      setSubscription(nextSubscription);
-      setReceiptConfirmed(false); setEligibility(null);
-      setMessages((current) => [...current, newMessage("user", product.product)]);
-      setAssistantLoading(true); setAssistantAwaiting(true);
-      try {
-        const response = await api.chat({ user_id: user!.id, application_id: application.public_id, message: `Is ${product.product} eligible under the current program?` });
-        setMessages((current) => [...current, newMessage("assistant", response.message, { citations: response.citations })]);
-        setQuickReplies(["What should my receipt show?", "How much could I receive?"]);
-      } catch (err) {
-        setMessages((current) => [...current, newMessage("assistant", `I saved your selection, but policy assistance is temporarily unavailable. ${getErrorMessage(err)} You can continue by uploading your receipt.`, { tone: "warning" })]);
-      } finally { setAssistantLoading(false); setAssistantAwaiting(false); }
-    } catch (err) { setError(getErrorMessage(err)); }
-    finally { setActionLoading(null); }
-  }
-
   async function uploadReceipt(file: File) {
     if (!application) return;
     const result = await api.uploadReceipt(application.public_id, file);
@@ -221,9 +231,9 @@ export default function ApplyPage() {
       const result = await api.checkEligibility(application.public_id);
       setEligibility(result);
       const content = result.requires_manual_review
-        ? "The rule engine found an issue that needs human review. You can still complete safety training and submit the application."
+        ? "The rule engine found an issue that needs human review. You can still submit the application for that review."
         : result.eligible || result.provisional
-          ? "The deterministic rule engine says you are provisionally eligible. AI Safety Training must be complete before final submission."
+          ? "The deterministic rule engine says the application is ready for final review and submission. Optional AI safety learning is available separately."
           : "The rule engine found one or more requirements that are not met. Review each check below for a clear explanation.";
       setMessages((current) => [...current, newMessage("assistant", content, { tone: result.requires_manual_review ? "warning" : result.eligible || result.provisional ? "success" : "warning" })]);
     } catch (err) { setError(getErrorMessage(err)); setReceiptConfirmed(false); }
@@ -238,7 +248,7 @@ export default function ApplyPage() {
       setEligibility(finalEligibility);
       const submitted = await api.submitApplication(application.public_id);
       hydrateApplication(submitted);
-      router.push(`/application/${submitted.public_id}`);
+      router.push(`/application/${submitted.public_id}?submitted=1`);
     } catch (err) { setError(getErrorMessage(err)); }
     finally { setActionLoading(null); }
   }
@@ -290,8 +300,10 @@ export default function ApplyPage() {
               { label: "Subscription", complete: Boolean(subscription?.product) },
               { label: "Receipt", complete: hasUploadedReceipt(subscription) },
               { label: "Eligibility", complete: Boolean(eligibility) },
-              { label: "AI Safety", complete: Boolean(safetyProgress?.complete), detail: `${safetyProgress?.completed_count ?? 0}/${safetyProgress?.required_count ?? 4}` },
             ]} />
+            <div className="mt-4 border-t border-line pt-4">
+              <div className="flex items-start gap-3"><GraduationCap className="mt-0.5 size-4 shrink-0 text-violet-700" /><div className="min-w-0"><p className="text-xs font-bold text-navy-900">Optional AI safety learning</p><p className="mt-1 text-[11px] leading-5 text-slate-500">{safetyProgress?.completed_count ?? 0}/{safetyProgress?.required_count ?? 4} reviewed · never affects your application.</p><Link href="/safety" className="mt-1 inline-flex text-[11px] font-bold text-violet-700 hover:underline">Open lessons</Link></div></div>
+            </div>
           </Card>
 
           {!application ? <Card><LoadingState label="Creating application…" /></Card> : finalized ? (
@@ -317,13 +329,11 @@ export default function ApplyPage() {
                 <Button className="mt-4 w-full" variant="outline" loading={actionLoading === "eligibility"} onClick={confirmReceipt}>{evidenceUpdated ? "Check updated evidence" : "Re-check current evidence"} <ArrowRight className="size-4" /></Button>
               </Card>
               {evidenceUpdated && eligibility ? <EligibilityChecklist result={eligibility} title="Updated eligibility check" /> : null}
-              {evidenceUpdated && eligibility && safetyProgress?.complete ? <Card className="p-5"><div className="flex items-start gap-3 text-xs leading-5 text-slate-600"><ShieldCheck className="mt-0.5 size-4 shrink-0 text-teal-700" /><p>Resubmission runs the final server-side policy check. The reviewer request and your updated evidence remain in the audit trail.</p></div><Button className="mt-4 w-full" size="lg" loading={actionLoading === "submit"} onClick={submitApplication}><FileCheck2 className="size-5" /> Resubmit application</Button></Card> : null}
+              {evidenceUpdated && eligibility ? <Card className="p-5"><div className="flex items-start gap-3 text-xs leading-5 text-slate-600"><ShieldCheck className="mt-0.5 size-4 shrink-0 text-teal-700" /><p>Resubmission runs the final server-side policy check. The reviewer request and your updated evidence remain in the audit trail.</p></div><Button className="mt-4 w-full" size="lg" loading={actionLoading === "submit"} onClick={submitApplication}><FileCheck2 className="size-5" /> Resubmit application</Button></Card> : null}
             </div>
           ) : !receiptConfirmed && !eligibility ? (
             <div><ReceiptSummary subscription={subscription} confirmed={receiptConfirmed} onConfirm={confirmReceipt} />{actionLoading === "eligibility" ? <LoadingState label="Running deterministic checks…" className="min-h-24" /> : null}</div>
-          ) : eligibility && !safetyProgress?.complete ? (
-            <div className="space-y-4"><EligibilityChecklist result={eligibility} /><Card className="p-5"><div className="flex items-start gap-3"><span className="grid size-10 shrink-0 place-items-center rounded-lg bg-violet-50 text-violet-700"><GraduationCap className="size-5" /></span><div><h2 className="text-base font-bold text-navy-900">AI Safety Training required</h2><p className="mt-1 text-xs leading-5 text-slate-600">Complete four short modules before final submission.</p></div></div><Button asChild className="mt-4 w-full"><Link href="/safety">Continue training · {safetyProgress?.completed_count ?? 0}/4 <ArrowRight className="size-4" /></Link></Button></Card></div>
-          ) : subscription && safetyProgress?.complete ? (
+          ) : subscription && eligibility ? (
             <div className="space-y-4"><ApplicationSummary compact user={user} subscription={subscription} eligibility={eligibility} safetyProgress={safetyProgress} application={application} />{application.policy_citations?.length ? <Card className="p-4"><h3 className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-500">Policy evidence</h3><PolicyCitationList citations={application.policy_citations} /></Card> : null}<Card className="p-5"><div className="flex items-start gap-3 text-xs leading-5 text-slate-600"><ShieldCheck className="mt-0.5 size-4 shrink-0 text-teal-700" /><p>Submitting runs the final rule check on the server. The AI cannot approve this application or authorize payment.</p></div><Button className="mt-4 w-full" size="lg" loading={actionLoading === "submit"} onClick={submitApplication}><FileCheck2 className="size-5" /> Submit application</Button></Card></div>
           ) : <Card><LoadingState label="Checking application progress…" /></Card>}
         </aside>

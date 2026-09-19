@@ -7,7 +7,7 @@ import uuid
 from datetime import date
 from decimal import Decimal
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -24,19 +24,19 @@ from app.models import (
     ApplicationIdSequence,
     AuditLog,
     ClaimReservation,
-    Payment,
     LineBinding,
     LineLinkCode,
+    Payment,
     PolicyDocument,
     SafetyModule,
     SafetyProgress,
-    Subscription,
     SourceDocument,
     SourceReview,
+    Subscription,
     User,
     utcnow,
 )
-from app.rag.ingestion import ingest_knowledge
+from app.rag.ingestion import sync_knowledge
 from app.services.audit import record_audit
 
 DEMO_USER_IDS = {
@@ -169,7 +169,9 @@ def seed_demo_data(db: Session, *, ingest_policy: bool = True) -> None:
     for values in SAFETY_MODULES:
         existing = db.scalar(select(SafetyModule).where(SafetyModule.slug == values["slug"]))
         if existing is None:
-            db.add(SafetyModule(required=True, **values))
+            db.add(SafetyModule(required=False, **values))
+        else:
+            existing.required = False
     db.flush()
 
     for module in db.scalars(select(SafetyModule).order_by(SafetyModule.order_index)).all():
@@ -191,9 +193,8 @@ def seed_demo_data(db: Session, *, ingest_policy: bool = True) -> None:
                 )
             )
         else:
-            # Jamie's seeded PAID application records safety training as a passed
-            # decision-time check. Keep the current progress projection aligned
-            # when an older demo database is upgraded in place.
+            # Keep the seeded learner's optional progress aligned when an older
+            # demo database is upgraded in place.
             progress.completed = True
             progress.score = 100
             progress.attempts = max(progress.attempts, 1)
@@ -282,7 +283,9 @@ def seed_demo_data(db: Session, *, ingest_policy: bool = True) -> None:
                 {
                     "rule": "SAFETY_TRAINING_COMPLETED",
                     "passed": True,
-                    "message": "All required AI safety modules were complete at decision time.",
+                    "message": (
+                        "Optional AI safety learning was complete; it did not affect eligibility."
+                    ),
                     "blocking": False,
                     "requires_manual_review": False,
                 },
@@ -347,9 +350,8 @@ def seed_demo_data(db: Session, *, ingest_policy: bool = True) -> None:
         sequence.last_value = 1
     db.commit()
 
-    if ingest_policy and (db.scalar(select(func.count(PolicyDocument.id))) or 0) == 0:
-        if settings.knowledge_dir.exists():
-            ingest_knowledge(db, settings.knowledge_dir, replace=False)
+    if ingest_policy and settings.knowledge_dir.exists():
+        sync_knowledge(db, settings.knowledge_dir)
 
 
 def reset_demo_data(db: Session) -> None:

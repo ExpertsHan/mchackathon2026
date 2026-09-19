@@ -156,14 +156,12 @@ def _derive_state(db: Session, user_id: uuid.UUID, public_id: str | None) -> Age
         state.receipt_id = subscription.receipt_reference
         state.receipt_extracted = subscription.extraction_json or {}
     progress = safety_progress(db, user_id)
-    state.safety_complete = progress.all_required_complete
+    state.safety_complete = progress.all_complete
     missing: list[str] = []
     if not subscription or not subscription.product:
         missing.append("subscription product")
     if not subscription or not subscription.receipt_hash:
         missing.append("receipt")
-    if not state.safety_complete:
-        missing.append("AI safety training")
     state.missing_fields = missing
     if application.status in {
         ApplicationStatus.SUBMITTED,
@@ -182,8 +180,6 @@ def _derive_state(db: Session, user_id: uuid.UUID, public_id: str | None) -> Age
         state.stage = WorkflowStage.COLLECT_RECEIPT
     elif not application.eligibility_result:
         state.stage = WorkflowStage.CHECK_ELIGIBILITY
-    elif not state.safety_complete:
-        state.stage = WorkflowStage.SAFETY_TRAINING
     else:
         state.stage = WorkflowStage.FINAL_REVIEW
     return state
@@ -306,10 +302,6 @@ def deterministic_chat(
             )
         except DomainError as exc:
             response_text = exc.message
-            if exc.code == "SAFETY_TRAINING_INCOMPLETE":
-                actions.append(
-                    SuggestedAction(type="link", label="Continue AI safety", href="/safety")
-                )
     else:
         if state.stage == WorkflowStage.COLLECT_SUBSCRIPTION:
             response_text = "Which eligible AI service did you subscribe to?"
@@ -323,9 +315,6 @@ def deterministic_chat(
         elif state.stage == WorkflowStage.CHECK_ELIGIBILITY:
             response_text = "Your receipt is ready. Run the deterministic eligibility check next."
             actions.append(SuggestedAction(type="check_eligibility", label="Check eligibility"))
-        elif state.stage == WorkflowStage.SAFETY_TRAINING:
-            response_text = "Complete all four short AI Safety Training modules before submission."
-            actions.append(SuggestedAction(type="link", label="Continue training", href="/safety"))
         elif state.stage == WorkflowStage.FINAL_REVIEW:
             response_text = "All required information is ready. Review and submit your application."
             actions.append(SuggestedAction(type="submit", label="Submit application"))

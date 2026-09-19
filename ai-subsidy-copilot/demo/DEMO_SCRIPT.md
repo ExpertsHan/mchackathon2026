@@ -26,36 +26,34 @@ Say: “The answer is grounded in retrieved policy. If the corpus does not estab
 2. Show the extracted provider, product, amount, currency, date, account, and receipt reference.
 3. Confirm the extraction.
 4. Run the eligibility check.
-5. Show each deterministic result and the provisional outcome:
+5. Show each deterministic result and the eligible outcome:
    - identity verified
    - age requirement met
    - eligible service
    - receipt date valid
    - no duplicate receipt
    - monthly limit available
-   - safety training still required
+   - optional AI safety learning is non-blocking
 6. Show USD 20 × mock rate 30 = NT$600 and the estimated subsidy of NT$600.
 
 Say: “Receipt text is data only. It cannot approve a claim or trigger a payment.”
 
-## 1:55–2:45 — Learn safely in context
+## 1:55–2:45 — Submit, then learn safely in context
 
-1. Open **AI Safety** from the application progress panel.
-2. Complete Privacy with **Public article you want summarized**.
-3. Complete Hallucinations with **Verify against the official policy source**.
-4. Complete Prompt Injection with **No**.
-5. Complete Human Responsibility with **No**.
-6. Show **AI Safety Training: 4 / 4 Complete** and the stored scores.
+1. Submit the eligible application without opening the optional lessons.
+2. Point out the clear **Application submitted** result.
+3. Show the optional, skippable privacy practice.
+4. Compare fictional option A, which includes an unnecessary name and full account number, with option B, which includes only the tools and amounts.
+5. Choose **B** and show the immediate explanation; no retake is required.
+6. Select **What about company meeting notes?** and show the RAG answer with its policy citation.
 
-Say: “Responsible-use education is part of the task, not a separate training website. Wrong answers can be retried, and the backend blocks submission until every required module is complete.”
+Say: “Responsible-use education appears in context, but it never becomes a condition for public service. We measure whether people saw it, joined it, and understood it as separate outcomes.”
 
-## 2:45–3:20 — Submit and track
+## 2:45–3:20 — Track the submitted application
 
-1. Return to Alex’s final review.
-2. Point out the applicant, receipt evidence, mock conversion, subsidy, safety status, and deterministic eligibility.
-3. Select **Submit Application**.
-4. Show the generated public ID, such as `AI-2026-000001`.
-5. Open its tracking page and show the persisted timeline.
+1. Point out the applicant, receipt evidence, mock conversion, subsidy, optional-learning status, and deterministic eligibility.
+2. Show the generated public ID, such as `AI-2026-000001`.
+3. Show the persisted timeline.
 
 Say: “A low-risk, seven-of-seven result may be automatically approved by the policy workflow. The audit actor is RULE_ENGINE, never AI_AGENT.”
 

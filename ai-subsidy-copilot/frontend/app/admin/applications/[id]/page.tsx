@@ -99,7 +99,7 @@ export default function ReviewerApplicationPage() {
           </Card>
           <PaymentPanel application={application} />
           <Card className="p-5"><h2 className="text-sm font-bold text-navy-900">Safety & amount</h2><div className="mt-4"><KeyValueGrid items={[
-            { label: "Safety progress", value: application.safety_progress?.complete ? `${application.safety_progress.completed_count} / ${application.safety_progress.required_count} Complete` : `${application.safety_progress?.completed_count ?? 0} / ${application.safety_progress?.required_count ?? 4}`, icon: ShieldAlert },
+            { label: "Optional safety learning", value: application.safety_progress?.complete ? `${application.safety_progress.completed_count} / ${application.safety_progress.required_count} Reviewed` : `${application.safety_progress?.completed_count ?? 0} / ${application.safety_progress?.required_count ?? 4} Reviewed`, icon: ShieldAlert },
             { label: "Requested subsidy", value: formatCurrency(application.requested_amount_twd), icon: WalletCards },
             { label: "Approved subsidy", value: formatCurrency(application.approved_amount_twd), icon: BadgeCheck },
             { label: "Receipt amount", value: formatReceiptAmount(subscription?.amount, subscription?.currency), icon: WalletCards },

@@ -121,8 +121,6 @@ def _suggested_actions(state: AgentState) -> list[SuggestedAction]:
         return [SuggestedAction(type="upload_receipt", label="Upload receipt")]
     if state.stage == WorkflowStage.CHECK_ELIGIBILITY:
         return [SuggestedAction(type="check_eligibility", label="Check eligibility")]
-    if state.stage == WorkflowStage.SAFETY_TRAINING:
-        return [SuggestedAction(type="link", label="Continue AI safety", href="/safety")]
     if state.stage == WorkflowStage.FINAL_REVIEW:
         return [SuggestedAction(type="submit", label="Submit application")]
     if state.application_id:

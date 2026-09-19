@@ -7,7 +7,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.core.enums import ApplicationStatus, RiskLevel
 from app.schemas.domain import (
@@ -53,10 +53,36 @@ class SafetyProgressItem(BaseModel):
 
 class SafetyProgressResponse(BaseModel):
     user_id: uuid.UUID
+    completed_count: int
+    total_count: int
+    all_complete: bool
+    participation_optional: bool = True
+    # Kept for API compatibility with older clients. No module is required now.
     completed_required: int
     total_required: int
     all_required_complete: bool
     modules: list[SafetyProgressItem]
+
+
+class SafetyEngagementEventRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    user_id: uuid.UUID
+    application_id: str | None = Field(default=None, max_length=32)
+    event: Literal[
+        "CHAT_REMINDER_VIEWED",
+        "PRACTICE_SHOWN",
+        "PRACTICE_ANSWERED",
+        "PRACTICE_SKIPPED",
+        "RAG_FOLLOWUP_OPENED",
+    ]
+    selected_option: Literal["A", "B"] | None = None
+
+    @model_validator(mode="after")
+    def validate_answer_event(self) -> SafetyEngagementEventRequest:
+        if (self.event == "PRACTICE_ANSWERED") != (self.selected_option is not None):
+            raise ValueError("Only PRACTICE_ANSWERED requires a selected_option.")
+        return self
 
 
 class CitizenSubscriptionRead(BaseModel):

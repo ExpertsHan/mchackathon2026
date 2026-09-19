@@ -29,7 +29,8 @@ The citizen portal combines policy chat with reliable application controls. The 
 - Deterministic parsing for the included text PDFs and optional OpenAI vision for images
 - SHA-256 duplicate detection and deterministic LOW/MEDIUM/HIGH risk scoring
 - Seven individually explained eligibility checks and a static mock currency conversion
-- Four short safety modules with server-checked quizzes, retry, scores, and progress
+- Four optional safety modules with immediate explanations and learning progress
+- Chat privacy reminder and a skippable post-submission scenario with a cited RAG follow-up
 - Submission gating, friendly `AI-2026-000001` IDs, and enforced state transitions
 - Citizen status tracking derived from stored state and audit events
 - Reviewer metrics, filters, search, evidence, citations, risk, and audit history
@@ -102,14 +103,24 @@ References: [Gemini OpenAI compatibility](https://ai.google.dev/gemini-api/docs/
 
 Safety is both product content and an engineering boundary:
 
-- Privacy, hallucinations, prompt injection, and human responsibility are mandatory modules.
+- Privacy, hallucinations, prompt injection, and human responsibility are optional learning modules.
 - Correct answers stay server-side until a response is graded.
-- Every attempt and completion is persisted; all four required modules gate submission.
+- Learning progress is persisted, but it never gates eligibility, submission, review, approval, or payment.
+- The post-submission scenario is optional and skippable; exposure, participation, and understanding are recorded separately.
 - Uploaded and retrieved text is data, never an instruction source.
 - The malicious demo receipt is parsed for valid receipt fields but cannot trigger actions.
 - The assistant receives masked identity data and only the minimum context required.
 - No private receipt or citizen record is placed in the vector knowledge base.
 - The UI shows concise rule explanations and citations, never hidden model reasoning.
+
+`POST /api/safety/engagement` records `CHAT_REMINDER_VIEWED`, `PRACTICE_SHOWN`,
+`PRACTICE_ANSWERED`, `PRACTICE_SKIPPED`, and `RAG_FOLLOWUP_OPENED` separately.
+The endpoint checks the signed demo user and application ownership. Answer correctness
+is derived by the server from the selected option. Events appear in the reviewer audit
+log but are excluded from the application status timeline. A recorded display or click
+does not prove attention or understanding; effectiveness still requires voluntary user
+testing with new before/after scenarios. Refreshes may record another exposure event,
+so use distinct users/applications when measuring reach, rather than raw event counts.
 
 ## 8. Eligibility, approval, and payment separation
 
@@ -272,6 +283,10 @@ The command is idempotent and reports how many chunks were stored. In Docker:
 docker compose exec backend python -m app.scripts.ingest_knowledge
 ```
 
+In demo mode, startup also updates changed bundled policy sections and optional-module
+flags in place. Existing applications, decision snapshots, and uploaded receipts remain
+available. No database reset is needed to adopt the optional-learning policy.
+
 Do not add citizen records, raw IDs, receipts, or application history to `knowledge/`. To regenerate the sample PDFs:
 
 ```bash
@@ -292,7 +307,7 @@ All emails use the reserved `.test` domain. Login is a profile selector that iss
 
 The complete five-minute script is [demo/DEMO_SCRIPT.md](demo/DEMO_SCRIPT.md).
 
-- **Happy path:** Alex → ChatGPT Plus → `chatgpt_plus_valid.pdf` → complete four safety modules → submit → automatic rule-engine approval → process payment → citizen sees PAID.
+- **Happy path:** Alex → ChatGPT Plus → `chatgpt_plus_valid.pdf` → submit without taking a lesson → automatic rule-engine approval → optional privacy practice (answer or skip) → process payment → citizen sees PAID.
 - **Duplicate:** Jamie → Notion AI → `duplicate_receipt.pdf`, byte-identical to the seeded Notion evidence → HIGH risk → MANUAL_REVIEW.
 - **Under age:** Taylor → Claude Pro → `claude_pro_valid.pdf` → `AGE_REQUIREMENT` fails.
 - **Ambiguous:** upload `ambiguous_receipt.pdf` → missing required evidence and low confidence → manual review.
@@ -325,7 +340,7 @@ npm run typecheck
 npm run build
 ```
 
-The 61-test backend suite covers adult/under-age/product/duplicate/monthly/safety/cap calculations; invalid state transitions; payment state, amount authority, and idempotency; demo-token ownership and citizen-data redaction; requested-information resubmission; immutable receipt evidence; concurrent claim reservations; file limits and malicious/vision receipt isolation; persisted decision snapshots and citations; sanitized agent-session persistence; repeatable resets; grounded RAG retrieval; Gemini/OpenAI agent orchestration; and unknown-product phrasing. Tests never require a live external AI request.
+The 69-test backend suite covers adult/under-age/product/duplicate/monthly/safety/cap calculations; invalid state transitions; payment state, amount authority, and idempotency; demo-token ownership and citizen-data redaction; requested-information resubmission; immutable receipt evidence; concurrent claim reservations; file limits and malicious/vision receipt isolation; persisted decision snapshots and citations; sanitized agent-session persistence; repeatable resets; grounded RAG retrieval; Gemini/OpenAI agent orchestration; and unknown-product phrasing. Optional-learning regressions cover submission without lessons, incorrect answers and skipping, server-side grading, engagement ownership, insufficient RAG evidence, and upgrading an existing demo without resetting its records. Tests never require a live external AI request.
 
 ## 19. API documentation
 
@@ -338,13 +353,13 @@ FastAPI publishes the live OpenAPI schema at <http://localhost:8000/openapi.json
 - `/api/safety/*`
 - `/api/admin/*`
 
-Errors use a stable envelope:
+Errors use a stable envelope, for example:
 
 ```json
 {
   "error": {
-    "code": "SAFETY_TRAINING_INCOMPLETE",
-    "message": "Complete all required AI safety modules before submission."
+    "code": "RECEIPT_REQUIRED",
+    "message": "Upload a receipt before submitting the application."
   }
 }
 ```

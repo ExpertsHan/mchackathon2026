@@ -24,7 +24,7 @@ export function ApplicationSummary({
     { icon: Bot, label: "AI subscription", value: subscription?.product ?? application?.subscription?.product ?? "Not selected", detail: subscription?.provider ?? application?.subscription?.provider },
     { icon: ReceiptText, label: "Receipt amount", value: formatReceiptAmount(subscription?.amount ?? application?.subscription?.amount, subscription?.currency ?? application?.subscription?.currency), detail: subscription?.purchase_date ? formatDate(subscription.purchase_date) : undefined },
     { icon: WalletCards, label: eligibility?.eligible ? "Approved subsidy" : "Estimated subsidy", value: formatCurrency(eligibility ? (eligibility.provisional ? eligibility.estimated_amount_twd : eligibility.approved_amount_twd) : application?.approved_amount_twd ?? application?.requested_amount_twd), detail: "Maximum NT$600" },
-    { icon: GraduationCap, label: "AI safety training", value: safetyProgress?.complete ? "Completed" : `${safetyProgress?.completed_count ?? 0} / ${safetyProgress?.required_count ?? 4} complete`, detail: safetyProgress?.complete ? "All required modules" : "Required before submission" },
+    { icon: GraduationCap, label: "Optional AI safety learning", value: safetyProgress?.complete ? "Reviewed" : `${safetyProgress?.completed_count ?? 0} / ${safetyProgress?.required_count ?? 4} reviewed`, detail: "Does not affect submission or eligibility" },
   ];
   return (
     <div className={compact ? "space-y-4" : "space-y-5"}>

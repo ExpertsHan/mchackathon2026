@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 export function ProgressIndicator({ currentStep, completedSteps }: { currentStep: number; completedSteps: number[] }) {
   return (
     <nav aria-label="Application progress" className="rounded-2xl border border-line bg-white p-4 shadow-sm sm:p-5">
-      <ol className="grid grid-cols-6">
+      <ol className="grid" style={{ gridTemplateColumns: `repeat(${APPLICATION_STEPS.length}, minmax(0, 1fr))` }}>
         {APPLICATION_STEPS.map((step, index) => {
           const number = index + 1;
           const complete = completedSteps.includes(number);

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { ArrowLeft, BookOpen, Calendar, CheckCircle2, FileText, RefreshCw, ShieldAlert, UserRound, WalletCards } from "lucide-react";
 import { PageContainer } from "@/components/app-shell";
@@ -13,6 +13,7 @@ import { PolicyCitationList } from "@/components/policy-citation";
 import { RiskBadge, StatusBadge } from "@/components/status-badge";
 import { SourceReviewPanel } from "@/components/source-review";
 import { KeyValueGrid } from "@/components/application-summary";
+import { SafetyPractice } from "@/components/safety-practice";
 import { api } from "@/lib/api";
 import type { Application, EligibilityResult, TimelineEvent } from "@/lib/types";
 import { formatCurrency, formatDate, formatDateTime, formatReceiptAmount, getErrorMessage, statusDescription } from "@/lib/utils";
@@ -24,6 +25,7 @@ function eligibilityOf(application: Application): EligibilityResult | null {
 
 export default function ApplicationStatusPage() {
   const params = useParams<{ id: string }>();
+  const searchParams = useSearchParams();
   const publicId = decodeURIComponent(params.id);
   const [application, setApplication] = useState<Application | null>(null);
   const [events, setEvents] = useState<TimelineEvent[]>([]);
@@ -46,12 +48,14 @@ export default function ApplicationStatusPage() {
   if (error || !application) return <PageContainer className="max-w-2xl py-16"><Card className="p-6"><Alert tone="error" title="Application could not be found">{error ?? "No application was returned."}</Alert><div className="mt-5 flex gap-2"><Button onClick={() => { setLoading(true); setError(null); void load(); }}><RefreshCw className="size-4" /> Try again</Button><Button asChild variant="outline"><Link href="/track">Track another ID</Link></Button></div></Card></PageContainer>;
 
   const eligibility = eligibilityOf(application);
+  const submittedNow = searchParams.get("submitted") === "1" && Boolean(application.submitted_at);
   const reason = application.requested_information ?? application.review_reason;
   return (
     <PageContainer>
       <Button asChild variant="ghost" size="sm" className="mb-5 -ml-3"><Link href="/track"><ArrowLeft className="size-4" /> Track another application</Link></Button>
       <SectionHeading eyebrow="Application tracking" title={application.public_id} description="Status is derived from persisted application and audit records—not a frontend simulation." action={<div className="flex flex-wrap items-center gap-2"><RiskBadge risk={application.risk_level ?? "LOW"} /><StatusBadge status={application.status} /></div>} />
 
+      {submittedNow ? <Alert className="mt-6" tone="success" title="Application submitted">Your application has been recorded. The optional privacy practice below is separate from the application and can be skipped.</Alert> : null}
       {["MANUAL_REVIEW", "REQUESTED_INFORMATION"].includes(application.status) ? <Alert className="mt-6" tone="warning" title={application.status === "REQUESTED_INFORMATION" ? "More information is required" : "This application requires human review"}>{reason ?? (application.risk_reasons?.length ? application.risk_reasons.join(" · ") : "A reviewer is checking the evidence and risk flags.")}</Alert> : null}
       {application.status === "REJECTED" ? <Alert className="mt-6" tone="error" title="Application rejected">{application.review_reason ?? "The application did not meet the demo program requirements."}</Alert> : null}
       {application.status === "PAID" ? <Alert className="mt-6" tone="success" title="Mock subsidy paid">The demo treasury recorded a completed payment of {formatCurrency(application.payment?.amount_twd ?? application.approved_amount_twd)}.</Alert> : null}
@@ -60,7 +64,13 @@ export default function ApplicationStatusPage() {
         <div className="space-y-6">
           <Card className="p-5 sm:p-6">
             <div className="flex flex-col gap-4 border-b border-line pb-5 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-xs font-bold uppercase tracking-[.12em] text-slate-500">Current outcome</p><h2 className="mt-2 text-2xl font-extrabold text-navy-900">{statusDescription(application.status)}</h2></div><div className="rounded-xl bg-teal-50 px-4 py-3 text-right"><p className="text-[10px] font-extrabold uppercase tracking-wider text-teal-700">Approved amount</p><p className="mt-1 text-xl font-extrabold text-navy-900">{formatCurrency(application.approved_amount_twd)}</p></div></div>
-            <div className="mt-6"><ApplicationTimeline application={application} events={events} /></div>
+          </Card>
+
+          {submittedNow ? <SafetyPractice userId={application.user_id} applicationId={application.public_id} /> : null}
+
+          <Card className="p-5 sm:p-6">
+            <h2 className="mb-5 text-sm font-bold text-navy-900">Application timeline</h2>
+            <ApplicationTimeline application={application} events={events} />
           </Card>
 
           {eligibility ? <EligibilityChecklist result={eligibility} title="Deterministic eligibility checks" /> : null}
@@ -78,7 +88,7 @@ export default function ApplicationStatusPage() {
               { label: "AI tool", value: application.subscription?.product ?? "—", icon: FileText },
               { label: "Receipt amount", value: formatReceiptAmount(application.subscription?.amount, application.subscription?.currency), icon: WalletCards },
               { label: "Purchase date", value: formatDate(application.subscription?.purchase_date), icon: Calendar },
-              { label: "Safety training", value: application.safety_progress?.complete ? "4 / 4 Complete" : `${application.safety_progress?.completed_count ?? 0} / ${application.safety_progress?.required_count ?? 4} Complete`, icon: CheckCircle2 },
+              { label: "Optional safety learning", value: application.safety_progress?.complete ? "4 / 4 Reviewed" : `${application.safety_progress?.completed_count ?? 0} / ${application.safety_progress?.required_count ?? 4} Reviewed`, icon: CheckCircle2 },
             ]} /></div>
           </Card>
           <PaymentPanel application={application} />

@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.enums import ActorType, ApplicationStatus, EligibilityOutcome
-from app.core.errors import DomainError, ResourceNotFound, SafetyTrainingIncomplete
+from app.core.errors import DomainError, ResourceNotFound
 from app.models import Application, ApplicationIdSequence, SourceReview, Subscription, User
 from app.schemas import EligibilityEvaluation, SubscriptionInput
 from app.services.audit import record_audit
@@ -175,11 +175,6 @@ def submit_application(
         )
 
     result = evaluate_application(db, application, persist=True, reserve_claim=True)
-    safety_check = next(
-        check for check in result.checks if check.rule.value == "SAFETY_TRAINING_COMPLETED"
-    )
-    if not safety_check.passed:
-        raise SafetyTrainingIncomplete()
 
     transition_application(application, ApplicationStatus.SUBMITTED)
     application.information_request = None
@@ -272,11 +267,6 @@ def approve_application(
             "Required source documents or OCR policy checks must be resolved before approval.",
             status_code=409,
         )
-    safety_check = next(
-        check for check in result.checks if check.rule.value == "SAFETY_TRAINING_COMPLETED"
-    )
-    if not safety_check.passed:
-        raise SafetyTrainingIncomplete()
 
     blocking_failures = [
         check.rule.value for check in result.checks if not check.passed and check.blocking

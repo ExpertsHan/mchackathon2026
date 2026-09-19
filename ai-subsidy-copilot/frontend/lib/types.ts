@@ -195,6 +195,7 @@ export interface SafetyProgress {
   completed_count: number;
   required_count: number;
   complete: boolean;
+  participation_optional: boolean;
   modules: Array<{
     module_id: string;
     completed: boolean;
@@ -202,6 +203,13 @@ export interface SafetyProgress {
     attempts?: number;
   }>;
 }
+
+export type SafetyEngagementEvent =
+  | "CHAT_REMINDER_VIEWED"
+  | "PRACTICE_SHOWN"
+  | "PRACTICE_ANSWERED"
+  | "PRACTICE_SKIPPED"
+  | "RAG_FOLLOWUP_OPENED";
 
 export interface QuizResult {
   correct: boolean;

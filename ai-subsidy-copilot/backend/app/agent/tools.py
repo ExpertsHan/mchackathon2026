@@ -57,7 +57,8 @@ def get_current_program_rules() -> dict[str, object]:
         "minimum_age": 18,
         "maximum_reimbursement_twd": 600,
         "claims_per_calendar_month": 1,
-        "safety_training_required": True,
+        "safety_training_required": False,
+        "safety_learning_optional": True,
         "exchange_rates": {"TWD": 1, "USD": 30, "EUR": 32},
         "exchange_rate_notice": "Mock exchange rates used for demonstration.",
     }
@@ -120,7 +121,8 @@ def get_application_progress(
             "application_selected": False,
             "status": None,
             "missing_fields": ["application"],
-            "safety_complete": progress.all_required_complete,
+            "safety_learning_optional": True,
+            "safety_complete": progress.all_complete,
         }
     application = get_application(db, public_id, user_id)
     subscription = application.subscription
@@ -129,8 +131,6 @@ def get_application_progress(
         missing_fields.append("subscription product")
     if subscription is None or not subscription.receipt_hash:
         missing_fields.append("receipt")
-    if not progress.all_required_complete:
-        missing_fields.append("AI safety training")
     return {
         "application_selected": True,
         "public_id": application.public_id,
@@ -139,6 +139,7 @@ def get_application_progress(
         "product": subscription.product if subscription else None,
         "receipt_uploaded": bool(subscription and subscription.receipt_hash),
         "eligibility_checked": application.eligibility_result is not None,
-        "safety_complete": progress.all_required_complete,
+        "safety_learning_optional": True,
+        "safety_complete": progress.all_complete,
         "missing_fields": missing_fields,
     }

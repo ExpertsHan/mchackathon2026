@@ -18,7 +18,7 @@ The receipt parser accepts a narrow set of known fields. Other document text is 
 
 ## Why make safety training part of the application?
 
-Because the behavior matters at the moment of use. Four short modules cover privacy, hallucinations, prompt injection, and human responsibility. Answers are graded server-side, attempts are persisted, and all four modules gate submission.
+Because the behavior matters at the moment of use. A chat reminder and optional post-submission exercise introduce data minimization. Four optional modules cover privacy, hallucinations, prompt injection, and human responsibility. Learning and answers do not affect submission or decisions. Exposure, participation, and first-answer correctness are recorded separately; learning effectiveness still needs user testing.
 
 ## Can a reviewer override the system?
 

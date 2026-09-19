@@ -15,7 +15,8 @@ fictional: true
 2. An eligible AI product selection.
 3. A PDF, PNG, JPG, or JPEG receipt no larger than the service upload limit.
 4. Evidence of provider, product, purchase date, and amount.
-5. Completion of all four required AI safety modules.
+
+Optional AI safety learning is available, but it is not an application requirement and never affects an application decision.
 
 ## Application stages
 
@@ -23,7 +24,7 @@ Applications begin in DRAFT. Submission moves the record to SUBMITTED and determ
 
 ## What AI does and does not do
 
-The AI assistant helps explain policy, identifies missing information, extracts receipt fields, and presents the deterministic checks. It cannot change program rules, approve or reject a claim, alter the subsidy amount, bypass safety training, or authorize a payment.
+The AI assistant helps explain policy, identifies missing information, extracts receipt fields, and presents the deterministic checks. It cannot change program rules, approve or reject a claim, alter the subsidy amount, or authorize a payment. Optional safety learning remains separate from the decision workflow.
 
 ## Privacy
 

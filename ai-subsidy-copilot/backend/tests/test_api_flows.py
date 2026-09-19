@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from datetime import date
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
@@ -57,7 +59,7 @@ def complete_safety(client: TestClient, user_key: str) -> None:
         assert response.json()["correct"] is True
 
 
-def test_complete_happy_path_policy_safety_submit_payment_tracking(
+def test_complete_happy_path_submit_without_safety_gate_payment_tracking(
     client: TestClient,
 ) -> None:
     login = client.post("/api/demo/login", json={"user_id": str(DEMO_USER_IDS["alex"])})
@@ -80,23 +82,37 @@ def test_complete_happy_path_policy_safety_submit_payment_tracking(
     assert receipt["subscription"]["product"] == "ChatGPT Plus"
     assert "mock demo rate" in receipt["mock_exchange_rate"]
 
-    provisional = client.post(f"/api/applications/{public_id}/eligibility/check")
-    assert provisional.status_code == 200
-    assert provisional.json()["provisionally_eligible"] is True
+    evaluation = client.post(f"/api/applications/{public_id}/eligibility/check")
+    assert evaluation.status_code == 200
+    assert evaluation.json()["eligible"] is True
+    assert evaluation.json()["provisionally_eligible"] is False
 
-    blocked = client.post(f"/api/applications/{public_id}/submit")
-    assert blocked.status_code == 409
-    assert blocked.json()["error"]["code"] == "SAFETY_TRAINING_INCOMPLETE"
-
-    complete_safety(client, "alex")
     progress = client.get(f"/api/users/{DEMO_USER_IDS['alex']}/safety-progress").json()
-    assert progress["completed_required"] == 4
+    assert progress["completed_count"] == 0
+    assert progress["total_count"] == 4
+    assert progress["participation_optional"] is True
     assert progress["all_required_complete"] is True
 
     submitted = client.post(f"/api/applications/{public_id}/submit")
     assert submitted.status_code == 200, submitted.text
     assert submitted.json()["application"]["status"] == "APPROVED"
     assert submitted.json()["application"]["approved_amount_twd"] == "600.00"
+
+    engagement = client.post(
+        "/api/safety/engagement",
+        json={
+            "user_id": str(DEMO_USER_IDS["alex"]),
+            "application_id": public_id,
+            "event": "PRACTICE_ANSWERED",
+            "selected_option": "B",
+        },
+    )
+    assert engagement.status_code == 200, engagement.text
+    audit_actions = [
+        event["action"]
+        for event in client.get(f"/api/admin/applications/{public_id}").json()["audit_logs"]
+    ]
+    assert "SAFETY_PRACTICE_ANSWERED" in audit_actions
 
     payment = client.post(f"/api/admin/applications/{public_id}/process-payment")
     assert payment.status_code == 200, payment.text
@@ -113,7 +129,14 @@ def test_complete_happy_path_policy_safety_submit_payment_tracking(
 
 def test_source_review_missing_documents_prevents_automatic_approval(
     client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    class FixedDate(date):
+        @classmethod
+        def today(cls) -> FixedDate:
+            return cls(2026, 8, 20)
+
+    monkeypatch.setattr("app.services.source_review.date", FixedDate)
     public_id = create_application(client, "alex")
     source = client.post(
         f"/api/applications/{public_id}/source-data",
@@ -141,6 +164,93 @@ def test_source_review_missing_documents_prevents_automatic_approval(
     reviewer = client.get(f"/api/admin/applications/{public_id}").json()
     assert reviewer["source_review"]["evaluation"]["result"] == "NEED_SUPPLEMENT"
     assert len(reviewer["source_review"]["evaluation"]["rules"]) == 17
+
+
+def test_optional_safety_answer_is_explained_without_a_required_retry(
+    client: TestClient,
+) -> None:
+    login_as(client, "alex")
+    module = next(
+        item for item in client.get("/api/safety/modules").json() if item["slug"] == "privacy"
+    )
+    result = client.post(
+        f"/api/safety/modules/{module['id']}/answer",
+        json={"user_id": str(DEMO_USER_IDS["alex"]), "answer": "A"},
+    )
+    assert result.status_code == 200, result.text
+    assert result.json()["correct"] is False
+    assert result.json()["completed"] is True
+    assert "safer answer" in result.json()["explanation"].lower()
+
+    progress = client.get(f"/api/users/{DEMO_USER_IDS['alex']}/safety-progress").json()
+    assert progress["completed_count"] == 1
+    assert progress["all_complete"] is False
+
+
+def test_safety_engagement_cannot_be_attached_to_another_users_application(
+    client: TestClient,
+) -> None:
+    public_id = create_application(client, "alex")
+    login_as(client, "taylor")
+    response = client.post(
+        "/api/safety/engagement",
+        json={
+            "user_id": str(DEMO_USER_IDS["taylor"]),
+            "application_id": public_id,
+            "event": "PRACTICE_SHOWN",
+        },
+    )
+    assert response.status_code == 403
+
+
+@pytest.mark.parametrize(
+    "event_data",
+    [
+        {"event": "PRACTICE_ANSWERED", "selected_option": "A"},
+        {"event": "PRACTICE_SKIPPED"},
+    ],
+)
+def test_wrong_answer_or_skipping_does_not_change_application_or_payment(
+    client: TestClient, event_data: dict[str, str]
+) -> None:
+    public_id = create_application(client, "alex")
+    upload(client, public_id, "chatgpt_plus_valid.pdf")
+    submission = client.post(f"/api/applications/{public_id}/submit")
+    assert submission.status_code == 200, submission.text
+    submitted = client.get(f"/api/applications/{public_id}").json()
+    result = client.post(
+        "/api/safety/engagement",
+        json={
+            "user_id": str(DEMO_USER_IDS["alex"]),
+            "application_id": public_id,
+            **event_data,
+        },
+    )
+    assert result.status_code == 200, result.text
+    after = client.get(f"/api/applications/{public_id}").json()
+    assert after["application"] == submitted["application"]
+    assert after["payment"] == submitted["payment"]
+    audit = client.get(f"/api/admin/applications/{public_id}").json()["audit_logs"]
+    recorded = next(item for item in audit if item["action"] == f"SAFETY_{event_data['event']}")
+    if event_data["event"] == "PRACTICE_ANSWERED":
+        assert recorded["details_json"]["correct"] is False
+    timeline = client.get(f"/api/applications/{public_id}/timeline").json()["events"]
+    assert all(not item["action"].startswith("SAFETY_") for item in timeline)
+    payment = client.post(f"/api/admin/applications/{public_id}/process-payment")
+    assert payment.status_code == 200, payment.text
+    assert payment.json()["status"] == "PAID"
+
+
+def test_practice_result_is_derived_by_server(client: TestClient) -> None:
+    public_id = create_application(client, "alex")
+    base = {"user_id": str(DEMO_USER_IDS["alex"]), "application_id": public_id}
+    for event_data in (
+        {"event": "PRACTICE_ANSWERED"},
+        {"event": "PRACTICE_SKIPPED", "selected_option": "A"},
+        {"event": "PRACTICE_ANSWERED", "selected_option": "A", "correct": True},
+    ):
+        response = client.post("/api/safety/engagement", json={**base, **event_data})
+        assert response.status_code == 422, response.text
 
 
 def test_duplicate_receipt_enters_manual_review(client: TestClient) -> None:
@@ -241,7 +351,8 @@ def test_receipt_evidence_cannot_be_rewritten_through_subscription_api(
         check for check in evaluation["checks"] if check["rule"] == "ELIGIBLE_PRODUCT"
     )
     assert "ChatGPT Plus" in product_check["message"]
-    assert evaluation["provisionally_eligible"] is True
+    assert evaluation["eligible"] is True
+    assert evaluation["provisionally_eligible"] is False
 
 
 def test_direct_column_tampering_conflicts_with_authoritative_extraction(
@@ -384,8 +495,11 @@ def test_seeded_paid_claim_has_matching_completed_safety_progress(
     login_as(client, "jamie")
     progress = client.get(f"/api/users/{DEMO_USER_IDS['jamie']}/safety-progress")
     assert progress.status_code == 200, progress.text
-    assert progress.json()["completed_required"] == 4
-    assert progress.json()["total_required"] == 4
+    assert progress.json()["completed_count"] == 4
+    assert progress.json()["total_count"] == 4
+    assert progress.json()["completed_required"] == 0
+    assert progress.json()["total_required"] == 0
+    assert progress.json()["all_complete"] is True
     assert progress.json()["all_required_complete"] is True
 
     detail = client.get("/api/admin/applications/AI-2026-000001")
@@ -397,7 +511,7 @@ def test_seeded_paid_claim_has_matching_completed_safety_progress(
         if check["rule"] == "SAFETY_TRAINING_COMPLETED"
     )
     assert safety_check["passed"] is True
-    assert detail.json()["safety_progress"]["all_required_complete"] is True
+    assert detail.json()["safety_progress"]["all_complete"] is True
 
 
 def test_demo_reset_deletes_active_claim_reservations_and_is_repeatable(

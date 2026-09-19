@@ -15,28 +15,24 @@ export function EligibilityChecklist({ result, title = "Eligibility check" }: { 
       </div>
       <ul className="divide-y divide-line px-4">
         {result.checks.map((check) => {
-          const isPendingSafety = result.provisional && check.rule === "SAFETY_TRAINING_COMPLETED";
+          const isSafetyLearning = check.rule === "SAFETY_TRAINING_COMPLETED";
           return (
             <li className="flex items-start gap-3 py-3.5" key={check.rule}>
               <span className={cn(
                 "mt-0.5 grid size-5 shrink-0 place-items-center rounded-full border",
                 check.passed === true
                   ? "border-emerald-600 bg-emerald-600 text-white"
-                  : isPendingSafety
-                    ? "border-amber-500 bg-amber-50 text-amber-700"
-                    : check.passed === false
+                  : check.passed === false
                       ? "border-red-500 bg-red-50 text-red-700"
                       : "border-slate-300 bg-white text-slate-400",
               )}>
                 {check.passed === true
                   ? <Check className="size-3" strokeWidth={3} />
-                  : isPendingSafety
-                    ? <Circle className="size-2 fill-current" />
-                    : check.passed === false
+                  : check.passed === false
                       ? <X className="size-3" strokeWidth={3} />
                       : <Circle className="size-2 fill-current" />}
               </span>
-              <div className="min-w-0"><p className="text-xs font-extrabold text-navy-900">{humanize(check.rule)}</p><p className="mt-1 text-xs leading-5 text-slate-600">{check.message}</p></div>
+              <div className="min-w-0"><p className="text-xs font-extrabold text-navy-900">{isSafetyLearning ? "Optional AI safety learning" : humanize(check.rule)}</p><p className="mt-1 text-xs leading-5 text-slate-600">{check.message}</p></div>
             </li>
           );
         })}
@@ -46,7 +42,7 @@ export function EligibilityChecklist({ result, title = "Eligibility check" }: { 
           <div>
             <p className="text-[10px] font-extrabold uppercase tracking-[.14em] text-slate-600">Result</p>
             <p className="mt-1 text-sm font-bold text-navy-900">
-              {result.provisional ? "Provisionally eligible — AI Safety Training remains required" : result.requires_manual_review ? "Human review required" : result.eligible ? "Eligible" : "Not automatically eligible"}
+              {result.provisional ? "Provisionally eligible" : result.requires_manual_review ? "Human review required" : result.eligible ? "Eligible" : "Not automatically eligible"}
             </p>
           </div>
           <div className="text-right"><p className="text-[10px] font-extrabold uppercase tracking-[.14em] text-slate-600">{result.provisional ? "Estimated subsidy" : "Approved subsidy"}</p><p className="mt-1 text-xl font-extrabold text-navy-900">{formatCurrency(displayedAmount)}</p></div>

@@ -2,7 +2,7 @@
 
 import * as Progress from "@radix-ui/react-progress";
 import { useState } from "react";
-import { ArrowRight, Check, CheckCircle2, LockKeyhole, RefreshCw, ShieldCheck } from "lucide-react";
+import { ArrowRight, Check, CheckCircle2, LockKeyhole, ShieldCheck } from "lucide-react";
 import type { QuizResult, SafetyModuleData } from "@/lib/types";
 import { Alert, Button, Card } from "@/components/ui";
 import { cn, getErrorMessage } from "@/lib/utils";
@@ -33,7 +33,7 @@ export function SafetyModule({ module, number, active, onOpen }: { module: Safet
 
 export function SafetyQuiz({ module, onAnswer }: { module: SafetyModuleData; onAnswer: (choiceId: string) => Promise<QuizResult> }) {
   const [selected, setSelected] = useState<string | null>(null);
-  const [result, setResult] = useState<QuizResult | null>(module.completed ? { correct: true, completed: true, score: module.score ?? 100, explanation: "This module is complete." } : null);
+  const [result, setResult] = useState<QuizResult | null>(module.completed ? { correct: (module.score ?? 0) >= 100, completed: true, score: module.score ?? 0, explanation: "This optional module has already been reviewed." } : null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -50,16 +50,10 @@ export function SafetyQuiz({ module, onAnswer }: { module: SafetyModuleData; onA
     }
   }
 
-  function retry() {
-    setSelected(null);
-    setResult(null);
-    setError(null);
-  }
-
   return (
     <Card className="overflow-hidden">
       <div className="border-b border-line bg-navy-900 px-5 py-5 text-white sm:px-6">
-        <p className="text-[10px] font-extrabold uppercase tracking-[.16em] text-teal-200">AI Safety Training</p>
+        <p className="text-[10px] font-extrabold uppercase tracking-[.16em] text-teal-200">Optional AI safety learning</p>
         <h2 className="mt-2 text-2xl font-bold">{module.title}</h2>
       </div>
       <div className="p-5 sm:p-6">
@@ -74,7 +68,7 @@ export function SafetyQuiz({ module, onAnswer }: { module: SafetyModuleData; onA
             {module.choices.map((choice) => {
               const checked = selected === choice.id;
               return (
-                <button key={choice.id} role="radio" aria-checked={checked} disabled={result?.correct || submitting} onClick={() => setSelected(choice.id)} type="button" className={cn("flex w-full items-start gap-3 rounded-xl border bg-white p-3.5 text-left text-sm leading-6", checked ? "border-navy-600 ring-2 ring-navy-100" : "border-slate-200 hover:border-slate-400", result?.correct && "opacity-70")}>
+                <button key={choice.id} role="radio" aria-checked={checked} disabled={Boolean(result) || submitting} onClick={() => setSelected(choice.id)} type="button" className={cn("flex w-full items-start gap-3 rounded-xl border bg-white p-3.5 text-left text-sm leading-6", checked ? "border-navy-600 ring-2 ring-navy-100" : "border-slate-200 hover:border-slate-400", result && "opacity-70")}>
                   <span className={cn("mt-0.5 grid size-5 shrink-0 place-items-center rounded-full border-2", checked ? "border-navy-700" : "border-slate-300")}>{checked ? <span className="size-2.5 rounded-full bg-navy-700" /> : null}</span>
                   <span className="font-medium text-navy-900">{choice.label}</span>
                 </button>
@@ -83,10 +77,10 @@ export function SafetyQuiz({ module, onAnswer }: { module: SafetyModuleData; onA
           </div>
 
           {error ? <Alert tone="error" className="mt-4">{error}</Alert> : null}
-          {result ? <Alert className="mt-4" tone={result.correct ? "success" : "warning"} title={result.correct ? "Correct — module complete" : "Not quite — try again"}>{result.explanation}</Alert> : null}
+          {result ? <Alert className="mt-4" tone={result.correct ? "success" : "warning"} title={result.correct ? "Safer choice identified" : "Answer reviewed"}>{result.explanation}</Alert> : null}
 
           <div className="mt-4 flex justify-end">
-            {result && !result.correct ? <Button variant="outline" onClick={retry}><RefreshCw className="size-4" /> Try again</Button> : result?.correct ? <span className="inline-flex items-center gap-2 text-sm font-bold text-emerald-700"><CheckCircle2 className="size-5" /> Completed</span> : <Button onClick={submit} loading={submitting} disabled={!selected}>Check answer</Button>}
+            {result ? <span className="inline-flex items-center gap-2 text-sm font-bold text-emerald-700"><CheckCircle2 className="size-5" /> Reviewed</span> : <Button onClick={submit} loading={submitting} disabled={!selected}>Review answer</Button>}
           </div>
         </div>
       </div>
@@ -102,7 +96,7 @@ export function SafetyProgressCard({ completed, total }: { completed: number; to
       <Progress.Root className="relative mt-4 h-2 overflow-hidden rounded-full bg-slate-200" value={percent} aria-label={`${completed} of ${total} AI safety modules complete`}>
         <Progress.Indicator className="h-full rounded-full bg-teal-700 transition-transform duration-500" style={{ transform: `translateX(-${100 - percent}%)` }} />
       </Progress.Root>
-      <p className="mt-3 text-xs leading-5 text-slate-500">All required modules must be completed before final application submission.</p>
+      <p className="mt-3 text-xs leading-5 text-slate-500">These lessons are optional and do not affect eligibility, submission, review, or payment.</p>
     </Card>
   );
 }

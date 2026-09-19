@@ -199,7 +199,6 @@ def test_gemini_progress_tool_is_bound_to_authenticated_application(
     assert progress["missing_fields"] == [
         "subscription product",
         "receipt",
-        "AI safety training",
     ]
 
 
@@ -321,7 +320,6 @@ def test_progress_tool_is_bound_to_authenticated_application(
     assert progress["missing_fields"] == [
         "subscription product",
         "receipt",
-        "AI safety training",
     ]
 
 

@@ -12,6 +12,7 @@ import type {
   EligibilityResult,
   PolicyCitation,
   QuizResult,
+  SafetyEngagementEvent,
   SafetyModuleData,
   SafetyProgress,
   Subscription,
@@ -66,9 +67,10 @@ function normalizeEligibility(value: unknown): EligibilityResult | null {
 function normalizeSafetyProgress(value: unknown): SafetyProgress | null {
   if (!isRecord(value)) return null;
   return {
-    completed_count: Number(value.completed_required ?? value.completed_count ?? 0),
-    required_count: Number(value.total_required ?? value.required_count ?? 0),
-    complete: Boolean(value.all_required_complete ?? value.complete),
+    completed_count: Number(value.completed_count ?? value.completed_required ?? 0),
+    required_count: Number(value.total_count ?? value.total_required ?? value.required_count ?? 0),
+    complete: Boolean(value.all_complete ?? value.all_required_complete ?? value.complete),
+    participation_optional: Boolean(value.participation_optional ?? true),
     modules: Array.isArray(value.modules)
       ? value.modules.map((item) => {
           const row = isRecord(item) ? item : {};
@@ -434,6 +436,19 @@ export const api = {
       },
     );
     return unwrap<QuizResult>(body, "result");
+  },
+
+  async recordSafetyEngagement(payload: {
+    user_id: string;
+    application_id?: string | null;
+    event: SafetyEngagementEvent;
+    selected_option?: "A" | "B";
+  }) {
+    const body = await request<unknown>("/api/safety/engagement", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    return unwrap<{ message: string }>(body);
   },
 
   async getTimeline(publicId: string) {

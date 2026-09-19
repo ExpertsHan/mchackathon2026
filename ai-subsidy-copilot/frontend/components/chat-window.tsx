@@ -20,7 +20,13 @@ export function ChatWindow({ messages, loading, loadingLabel, children }: { mess
         {loading ? <TypingMessage label={loadingLabel} /> : null}
         <div ref={endRef} />
       </div>
-      {children ? <div className="border-t border-line bg-slate-50/80 p-3 sm:p-4">{children}</div> : null}
+      {children ? <div className="border-t border-line bg-slate-50/80 p-3 sm:p-4">
+        <div className="mb-3 flex items-start gap-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2.5 text-[11px] leading-5 text-sky-950">
+          <ShieldCheck className="mt-0.5 size-3.5 shrink-0 text-sky-700" />
+          <p>You do not need to share passwords, a full government ID, or a complete bank account in chat. Put formal evidence only in its labelled upload field.</p>
+        </div>
+        {children}
+      </div> : null}
     </section>
   );
 }

@@ -7,8 +7,9 @@ import re
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
+from typing import Any
 
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.models import PolicyDocument
@@ -108,6 +109,69 @@ def load_knowledge(knowledge_directory: str | Path) -> list[DocumentChunk]:
     return chunks
 
 
+def _chunk_hash(chunk: DocumentChunk) -> str:
+    return hashlib.sha256(
+        f"{chunk.document_name}\n{chunk.section}\n{chunk.content}".encode()
+    ).hexdigest()
+
+
+def _chunk_values(
+    chunk: DocumentChunk, vector: list[float], embedding_model: str
+) -> dict[str, Any]:
+    values = {
+        "document_name": chunk.document_name,
+        "section": chunk.section,
+        "content": chunk.content,
+        "embedding": vector,
+        "effective_from": chunk.effective_from,
+        "effective_to": chunk.effective_to,
+        "version": chunk.version,
+        "metadata_json": {
+            "article": chunk.article,
+            "topic": chunk.topic,
+            "embedding_model": embedding_model,
+            "source_type": "fictional_demo_policy",
+        },
+        "content_hash": _chunk_hash(chunk),
+    }
+    if hasattr(PolicyDocument, "article"):
+        values["article"] = chunk.article
+    return values
+
+
+def sync_knowledge(db: Session, knowledge_directory: str | Path) -> int:
+    """Refresh changed bundled sections in place without resetting application data.
+
+    Article numbers remain stable even when a section heading changes. Unchanged
+    chunks retain their IDs and embeddings, avoiding external calls on every boot.
+    """
+
+    chunks = load_knowledge(knowledge_directory)
+    existing = {
+        (document.document_name, metadata.get("article") or document.section): document
+        for document in db.scalars(select(PolicyDocument)).all()
+        if (metadata := document.metadata_json or {}).get("source_type")
+        == "fictional_demo_policy"
+    }
+    updates: list[tuple[DocumentChunk, PolicyDocument | None]] = []
+    for chunk in chunks:
+        document = existing.get((chunk.document_name, chunk.article or chunk.section))
+        if document is None or document.content_hash != _chunk_hash(chunk):
+            updates.append((chunk, document))
+    if not updates:
+        return 0
+    vectors, embedding_model = embed_texts([chunk.content for chunk, _ in updates])
+    for (chunk, document), vector in zip(updates, vectors, strict=True):
+        values = _chunk_values(chunk, vector, embedding_model)
+        if document is None:
+            db.add(PolicyDocument(**values))
+        else:
+            for field, value in values.items():
+                setattr(document, field, value)
+    db.commit()
+    return len(updates)
+
+
 def ingest_knowledge(
     db: Session,
     knowledge_directory: str | Path,
@@ -119,27 +183,6 @@ def ingest_knowledge(
     if replace:
         db.execute(delete(PolicyDocument))
     for chunk, vector in zip(chunks, vectors, strict=True):
-        values = {
-            "document_name": chunk.document_name,
-            "section": chunk.section,
-            "content": chunk.content,
-            "embedding": vector,
-            "effective_from": chunk.effective_from,
-            "effective_to": chunk.effective_to,
-            "version": chunk.version,
-            "metadata_json": {
-                "article": chunk.article,
-                "topic": chunk.topic,
-                "embedding_model": embedding_model,
-                "source_type": "fictional_demo_policy",
-            },
-            "content_hash": hashlib.sha256(
-                f"{chunk.document_name}\n{chunk.section}\n{chunk.content}".encode()
-            ).hexdigest(),
-        }
-        # Keep ingestion compatible with migrations that promote metadata columns.
-        if hasattr(PolicyDocument, "article"):
-            values["article"] = chunk.article
-        db.add(PolicyDocument(**values))
+        db.add(PolicyDocument(**_chunk_values(chunk, vector, embedding_model)))
     db.commit()
     return len(chunks)

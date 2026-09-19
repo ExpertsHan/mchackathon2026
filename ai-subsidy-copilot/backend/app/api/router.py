@@ -46,6 +46,7 @@ from app.schemas.api import (
     DemoLoginResponse,
     MessageResponse,
     ReceiptUploadResponse,
+    SafetyEngagementEventRequest,
     SafetyModuleRead,
     SafetyProgressResponse,
     TimelineResponse,
@@ -74,7 +75,12 @@ from app.services.queries import (
     citizen_subscription,
     timeline,
 )
-from app.services.safety import answer_module, get_safety_progress, list_modules
+from app.services.safety import (
+    answer_module,
+    get_safety_progress,
+    list_modules,
+    record_engagement,
+)
 from app.services.verification import run_verification
 
 router = APIRouter()
@@ -406,6 +412,27 @@ def answer_safety_module(
 ) -> SafetyAnswerResult:
     require_user(current_user, payload.user_id)
     return answer_module(db, user_id=payload.user_id, module_id=module_id, answer=payload.answer)
+
+
+@router.post("/api/safety/engagement", response_model=MessageResponse, tags=["safety"])
+def safety_engagement(
+    payload: SafetyEngagementEventRequest,
+    current_user: User = Depends(get_current_demo_user),
+    db: Session = Depends(get_db),
+) -> MessageResponse:
+    require_user(current_user, payload.user_id)
+    application = None
+    if payload.application_id:
+        application = get_application_by_public_id(db, payload.application_id)
+        require_application_owner(current_user, application)
+    record_engagement(
+        db,
+        user_id=payload.user_id,
+        application=application,
+        event=payload.event,
+        selected_option=payload.selected_option,
+    )
+    return MessageResponse(message="Optional safety engagement was recorded.")
 
 
 @router.get("/api/admin/stats", response_model=AdminStats, tags=["admin"])

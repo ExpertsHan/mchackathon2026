@@ -1,4 +1,4 @@
-"""Mandatory AI-safety lesson progress and quiz evaluation."""
+"""Optional AI-safety learning, quiz evaluation, and engagement tracking."""
 
 from __future__ import annotations
 
@@ -8,8 +8,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.enums import ActorType
-from app.core.errors import ResourceNotFound
-from app.models import SafetyModule, SafetyProgress, User, utcnow
+from app.core.errors import DomainError, ResourceNotFound
+from app.models import Application, SafetyModule, SafetyProgress, User, utcnow
 from app.schemas.api import (
     SafetyModuleRead,
     SafetyProgressItem,
@@ -62,12 +62,17 @@ def get_safety_progress(db: Session, user_id: uuid.UUID) -> SafetyProgressRespon
             )
         )
     required = [item for item in items if item.required]
-    completed = sum(item.completed for item in required)
+    completed_required = sum(item.completed for item in required)
+    completed_count = sum(item.completed for item in items)
     return SafetyProgressResponse(
         user_id=user_id,
-        completed_required=completed,
+        completed_count=completed_count,
+        total_count=len(items),
+        all_complete=bool(items) and completed_count == len(items),
+        participation_optional=True,
+        completed_required=completed_required,
         total_required=len(required),
-        all_required_complete=bool(required) and completed == len(required),
+        all_required_complete=not required or completed_required == len(required),
         modules=items,
     )
 
@@ -84,6 +89,9 @@ def answer_module(
     module = db.get(SafetyModule, module_id)
     if module is None:
         raise ResourceNotFound("SAFETY_MODULE_NOT_FOUND", "Safety module was not found.")
+    normalized_answer = answer.strip().upper()
+    if normalized_answer not in {choice["id"].upper() for choice in module.choices_json}:
+        raise DomainError("INVALID_SAFETY_ANSWER", "Choose one of the available answers.")
     progress = db.scalar(
         select(SafetyProgress).where(
             SafetyProgress.user_id == user_id,
@@ -100,23 +108,25 @@ def answer_module(
         )
         db.add(progress)
     progress.attempts += 1
-    correct = answer.strip().upper() == module.correct_answer.strip().upper()
-    if correct:
-        was_complete = progress.completed
-        progress.completed = True
-        progress.score = 100
-        progress.completed_at = progress.completed_at or utcnow()
-        if not was_complete:
-            record_audit(
-                db,
-                action="SAFETY_MODULE_COMPLETED",
-                actor_type=ActorType.CITIZEN,
-                actor_identifier=str(user_id),
-                user_id=user_id,
-                details={"module_id": str(module.id), "slug": module.slug, "score": 100},
-            )
-    elif not progress.completed:
-        progress.score = 0
+    correct = normalized_answer == module.correct_answer.strip().upper()
+    was_complete = progress.completed
+    progress.completed = True
+    progress.score = 100 if correct else 0
+    progress.completed_at = progress.completed_at or utcnow()
+    if not was_complete:
+        record_audit(
+            db,
+            action="SAFETY_MODULE_REVIEWED",
+            actor_type=ActorType.CITIZEN,
+            actor_identifier=str(user_id),
+            user_id=user_id,
+            details={
+                "module_id": str(module.id),
+                "slug": module.slug,
+                "correct": correct,
+                "score": progress.score,
+            },
+        )
     db.commit()
     db.refresh(progress)
     return SafetyAnswerResult(
@@ -127,6 +137,35 @@ def answer_module(
         explanation=(
             module.explanation
             if correct
-            else "That answer is not correct yet. Review the lesson and try again."
+            else f"The safer answer is explained here: {module.explanation}"
         ),
     )
+
+
+def record_engagement(
+    db: Session,
+    *,
+    user_id: uuid.UUID,
+    application: Application | None,
+    event: str,
+    selected_option: str | None = None,
+) -> None:
+    """Store exposure, participation, and understanding as separate audit events."""
+
+    if db.get(User, user_id) is None:
+        raise ResourceNotFound("USER_NOT_FOUND", "Demo user was not found.")
+    details: dict[str, str | bool] = {"participation_optional": True}
+    if selected_option is not None:
+        details["selected_option"] = selected_option
+        details["correct"] = selected_option == "B"
+        details["exercise_version"] = "subscription-total-v1"
+    record_audit(
+        db,
+        action=f"SAFETY_{event}",
+        actor_type=ActorType.CITIZEN,
+        actor_identifier=str(user_id),
+        user_id=user_id,
+        application=application,
+        details=details,
+    )
+    db.commit()

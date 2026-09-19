@@ -26,7 +26,7 @@ const features = [
   {
     icon: BookOpenCheck,
     title: "Learn as you apply",
-    description: "Four short, practical AI safety lessons are embedded directly into the application journey.",
+    description: "Optional, practical AI safety lessons help people learn without becoming an application barrier.",
     href: "/login",
     link: "Begin AI safety",
   },
@@ -39,7 +39,7 @@ const features = [
   },
 ];
 
-const checks = ["Eligible AI tool", "Receipt verified", "Safety complete", "Policy rules passed"];
+const checks = ["Eligible AI tool", "Receipt verified", "Policy rules passed", "Optional safety practice"];
 
 export default function HomePage() {
   return (
