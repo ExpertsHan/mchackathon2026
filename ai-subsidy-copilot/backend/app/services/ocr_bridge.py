@@ -49,6 +49,9 @@ def call_bridge(payload: dict) -> dict:
     environment = os.environ.copy()
     environment["GEMINI_API_KEY"] = settings.gemini_api_key
     environment["GEMINI_OCR_MODEL"] = settings.gemini_ocr_model
+    environment["OPENAI_API_KEY"] = settings.openai_api_key
+    environment["OPENAI_OCR_MODEL"] = settings.openai_model
+    environment["AI_PROVIDER"] = settings.ai_provider
     try:
         process = subprocess.run(
             [settings.ocr_node_binary, str(settings.ocr_module_dir / "copilot-bridge.js")],
@@ -105,10 +108,10 @@ def protect_identifiers(data: dict) -> dict:
 def extract_document(data: bytes, suffix: str, document_type: str) -> dict:
     if document_type not in {"receipt", "id_card", "passbook"}:
         return {"status": "uploaded", "data": {}}
-    if not settings.gemini_api_key.strip():
+    if not (settings.gemini_api_key.strip() or settings.openai_api_key.strip()):
         return {
             "status": "skipped",
-            "data": {"_error": "未設定 Gemini OCR，請由承辦人檢視原始文件。"},
+            "data": {"_error": "未設定 OCR 金鑰（Gemini 或 OpenAI），請由承辦人檢視原始文件。"},
         }
     # Windows cannot reopen a NamedTemporaryFile while it is still open.
     with tempfile.TemporaryDirectory(prefix="copilot-ocr-") as directory:

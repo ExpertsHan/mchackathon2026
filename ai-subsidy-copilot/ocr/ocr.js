@@ -9,6 +9,10 @@ const path = require('path');
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || null;
 const OCR_MODEL = process.env.GEMINI_OCR_MODEL || 'gemini-2.5-flash';
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY || null;
+const OPENAI_OCR_MODEL = process.env.OPENAI_OCR_MODEL || process.env.OPENAI_MODEL || 'gpt-5.6-luna';
+// AI_PROVIDER=openai 時先用 OpenAI，其餘先用 Gemini；先用的失敗（額度用完、429 等）再換另一家
+const PREFER_OPENAI = process.env.AI_PROVIDER === 'openai';
 
 // 所有欄位共用的防幻覺守則，避免模型為了「填好填滿」而亂猜、亂編造看不到的內容
 const ANTI_HALLUCINATION_RULE =
@@ -37,7 +41,7 @@ function guessMimeType(filePath) {
   return 'image/jpeg';
 }
 
-async function callGeminiVision(filePath, prompt) {
+async function callGeminiOnly(filePath, prompt) {
   if (!GEMINI_API_KEY) return { status: 'skipped', data: null, reason: '未設定 GEMINI_API_KEY' };
 
   try {
@@ -89,6 +93,63 @@ async function callGeminiVision(filePath, prompt) {
     console.error('OCR 處理發生錯誤：', err.message || err);
     return { status: 'failed', data: null, reason: err.message || '未知錯誤' };
   }
+}
+
+// 解析模型回傳的 JSON 文字（含被 markdown 圍欄包住、或被截斷的情況）
+function parseModelJson(text) {
+  const cleaned = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '');
+  try {
+    return JSON.parse(cleaned);
+  } catch {
+    return tryRepairJson(cleaned);
+  }
+}
+
+async function callOpenAiOnly(filePath, prompt) {
+  if (!OPENAI_API_KEY) return { status: 'skipped', data: null, reason: '未設定 OPENAI_API_KEY' };
+  try {
+    const mimeType = guessMimeType(filePath);
+    const dataUrl = `data:${mimeType};base64,${fs.readFileSync(filePath).toString('base64')}`;
+    const filePart =
+      mimeType === 'application/pdf'
+        ? { type: 'file', file: { filename: 'document.pdf', file_data: dataUrl } }
+        : { type: 'image_url', image_url: { url: dataUrl, detail: 'high' } };
+    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${OPENAI_API_KEY}` },
+      body: JSON.stringify({
+        model: OPENAI_OCR_MODEL,
+        messages: [{ role: 'user', content: [{ type: 'text', text: prompt }, filePart] }],
+        response_format: { type: 'json_object' },
+        max_completion_tokens: 4000,
+      }),
+    });
+    if (!res.ok) {
+      const errText = await res.text();
+      console.error(`OCR 呼叫 OpenAI 失敗（狀態碼 ${res.status}）：${errText.slice(0, 300)}`);
+      return { status: 'failed', data: null, reason: `OpenAI API錯誤 ${res.status}` };
+    }
+    const text = (await res.json()).choices?.[0]?.message?.content;
+    if (!text) return { status: 'failed', data: null, reason: 'OpenAI 未回傳內容' };
+    const parsed = parseModelJson(text);
+    if (!parsed) return { status: 'failed', data: null, reason: 'OpenAI 回傳的內容不是有效 JSON' };
+    return { status: 'done', data: parsed, reason: null };
+  } catch (err) {
+    console.error('OpenAI OCR 處理發生錯誤：', err.message || err);
+    return { status: 'failed', data: null, reason: err.message || '未知錯誤' };
+  }
+}
+
+// 依偏好順序嘗試各家視覺模型，任一成功即回傳；全部失敗才回報失敗
+async function callGeminiVision(filePath, prompt) {
+  const providers = PREFER_OPENAI ? [callOpenAiOnly, callGeminiOnly] : [callGeminiOnly, callOpenAiOnly];
+  let last = { status: 'skipped', data: null, reason: '未設定 GEMINI_API_KEY 或 OPENAI_API_KEY' };
+  for (const provider of providers) {
+    const result = await provider(filePath, prompt);
+    if (result.status === 'done') return result;
+    if (result.status === 'failed' || last.status === 'skipped') last = result;
+  }
+  return last;
 }
 
 // callGeminiVision 回傳的是 { fields: {...}, confidence: {...} }，這裡拆開來，
