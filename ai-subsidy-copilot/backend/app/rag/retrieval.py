@@ -147,8 +147,11 @@ def search_policy(
         or_(PolicyDocument.effective_from.is_(None), PolicyDocument.effective_from <= current),
         or_(PolicyDocument.effective_to.is_(None), PolicyDocument.effective_to >= current),
     )
-    vector, _ = embed_texts([query])
+    vector, embedding_model = embed_texts([query])
     query_vector = vector[0] if vector else None
+    # Hashed lexical vectors carry no cross-lingual meaning; only trust semantic
+    # similarity more when real embeddings are in use (e.g. Chinese query, English corpus).
+    semantic_weight = 0.28 if embedding_model == "deterministic-lexical-v1" else 0.6
     if db.bind is not None and db.bind.dialect.name == "postgresql" and query_vector:
         # pgvector is the primary semantic path. Lexical scoring below is retained as
         # a transparent hybrid signal and deterministic no-service fallback.
@@ -169,8 +172,9 @@ def search_policy(
             (
                 min(
                     1.0,
-                    _score(query, document) * 0.72
-                    + max(0.0, cosine_similarity(query_vector, document.embedding)) * 0.28,
+                    _score(query, document) * (1 - semantic_weight)
+                    + max(0.0, cosine_similarity(query_vector, document.embedding))
+                    * semantic_weight,
                 ),
                 document,
             )

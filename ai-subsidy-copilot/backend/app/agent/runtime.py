@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import uuid
 from collections.abc import Iterator
 from typing import Any
@@ -25,6 +26,8 @@ from app.core.enums import ActorType
 from app.schemas.api import AgentChatResponse, SuggestedAction
 from app.schemas.policy import PolicyCitation
 from app.services.audit import record_audit
+
+logger = logging.getLogger(__name__)
 
 AGENT_TOOLS: list[dict[str, Any]] = [
     {
@@ -494,6 +497,7 @@ def chat(
                 if isinstance(response, AgentChatResponse):
                     return response
     except Exception:
+        logger.exception("AI chat failed; falling back to deterministic guidance")
         db.rollback()
     return deterministic_chat(db, user_id=user_id, public_id=public_id, message=message)
 
@@ -548,6 +552,7 @@ def stream_chat_events(
                     }
                     return
         except Exception:
+            logger.exception("AI chat stream failed; falling back to deterministic guidance")
             db.rollback()
             if emitted_text:
                 yield {
