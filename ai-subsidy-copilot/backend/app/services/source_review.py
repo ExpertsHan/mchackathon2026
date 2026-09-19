@@ -120,8 +120,9 @@ def required_document_types(applicant_data: dict) -> list[str]:
     return required
 
 
-def document_status(db: Session, application: Application) -> list[dict]:
-    review = get_review(db, application)
+def _document_status_for_data(
+    db: Session, application: Application, applicant_data: dict
+) -> list[dict]:
     counts: dict[str, int] = {}
     for document in documents_for(db, application):
         counts[document.document_type] = counts.get(document.document_type, 0) + 1
@@ -132,8 +133,13 @@ def document_status(db: Session, application: Application) -> list[dict]:
             "multiple": kind in MULTI_FILE_TYPES,
             "uploaded_count": counts.get(kind, 0),
         }
-        for kind in required_document_types(review.applicant_data)
+        for kind in required_document_types(applicant_data)
     ]
+
+
+def document_status(db: Session, application: Application) -> list[dict]:
+    review = get_review(db, application)
+    return _document_status_for_data(db, application, review.applicant_data)
 
 
 def missing_documents(db: Session, application: Application) -> list[dict]:
@@ -147,19 +153,28 @@ def missing_documents(db: Session, application: Application) -> list[dict]:
 def progress_snapshot(db: Session, application: Application) -> dict:
     """Non-sensitive intake progress used by the assistant and tracking views."""
 
-    review = get_review(db, application)
-    data = review.applicant_data
-    statuses = document_status(db, application)
+    # This helper is used by the read-only agent. Do not create an empty review merely
+    # because the citizen opened chat before saving the form.
+    review = db.get(SourceReview, application.id)
+    data = review.applicant_data if review is not None else {}
+    statuses = _document_status_for_data(db, application, data)
+    applicant_missing = [
+        label for key, label in REQUIRED_APPLICANT_FIELDS.items() if not data.get(key)
+    ]
+    if data.get("applicant_type", "normal") != "normal" and not data.get(
+        "applicant_subtype"
+    ):
+        applicant_missing.append("身分類別")
     return {
         "tool": data.get("applied_tool_name"),
         "company": data.get("software_company"),
-        "applicant_missing": missing_applicant_fields(review),
+        "applicant_missing": applicant_missing,
         "receipt_uploaded": any(
             item["document_type"] == "receipt" and item["uploaded_count"] for item in statuses
         ),
         "missing_documents": [item["label"] for item in statuses if not item["uploaded_count"]],
-        "evaluated": bool(review.evaluation.get("result")),
-        "ai_result": review.evaluation.get("result"),
+        "evaluated": bool(review and review.evaluation.get("result")),
+        "ai_result": review.evaluation.get("result") if review else None,
     }
 
 

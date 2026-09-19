@@ -6,7 +6,6 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 
 REQUIRED_KNOWLEDGE = {
@@ -39,7 +38,8 @@ def main() -> None:
     knowledge_root = ROOT / "knowledge"
     receipts_root = ROOT / "demo" / "receipts"
     actual_knowledge = {
-        str(path.relative_to(knowledge_root)) for path in knowledge_root.rglob("*.md")
+        path.relative_to(knowledge_root).as_posix()
+        for path in knowledge_root.rglob("*.md")
     }
     actual_receipts = {path.name for path in receipts_root.glob("*.pdf")}
 

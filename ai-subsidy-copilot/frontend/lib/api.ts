@@ -3,6 +3,7 @@ import type {
   AdminApplicationRow,
   AdminStats,
   AgentResponse,
+  AgentChatRequest,
   AgentHistoryMessage,
   AgentStreamEvent,
   Application,
@@ -190,7 +191,7 @@ function decodeAgentEvent(block: string): AgentStreamEvent | null {
 }
 
 async function streamAgentChat(
-  payload: { user_id: string; application_id?: string; message: string },
+  payload: AgentChatRequest,
   onEvent: (event: AgentStreamEvent) => void,
 ) {
   const headers = new Headers({
@@ -366,7 +367,7 @@ export const api = {
     return normalizeApplication(body);
   },
 
-  async chat(payload: { user_id: string; application_id?: string; message: string }) {
+  async chat(payload: AgentChatRequest) {
     const body = await request<unknown>("/api/agent/chat", {
       method: "POST",
       body: JSON.stringify(payload),
@@ -382,7 +383,7 @@ export const api = {
   },
 
   async streamChat(
-    payload: { user_id: string; application_id?: string; message: string },
+    payload: AgentChatRequest,
     onEvent: (event: AgentStreamEvent) => void,
   ) {
     return streamAgentChat(payload, onEvent);

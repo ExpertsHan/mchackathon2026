@@ -177,10 +177,41 @@ class AdminApplicationsResponse(BaseModel):
     total: int
 
 
+class SourceIntakeDraftFields(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id_number: str | None = Field(default=None, max_length=12)
+    phone: str | None = Field(default=None, max_length=30)
+    birth_date: str | None = Field(default=None, max_length=32)
+    household_address: str | None = Field(default=None, max_length=300)
+    mailing_address: str | None = Field(default=None, max_length=300)
+    applicant_type: str | None = Field(default=None, max_length=32)
+    applicant_subtype: str | None = Field(default=None, max_length=80)
+    payment_type: str | None = Field(default=None, max_length=32)
+    software_category: str | None = Field(default=None, max_length=32)
+    applied_tool_name: str | None = Field(default=None, max_length=120)
+    software_company: str | None = Field(default=None, max_length=120)
+    purchase_date: str | None = Field(default=None, max_length=32)
+    is_own_credit_card: bool | None = None
+    original_currency: str | None = Field(default=None, max_length=16)
+    original_amount: str | None = Field(default=None, max_length=64)
+    declared_amount: str | None = Field(default=None, max_length=64)
+
+
+class SourceIntakeDraftContext(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["source_intake"]
+    fields: SourceIntakeDraftFields
+
+
 class AgentChatRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     user_id: uuid.UUID
     application_id: str | None = Field(default=None, max_length=32)
     message: str = Field(min_length=1, max_length=2000)
+    draft_context: SourceIntakeDraftContext | None = None
 
 
 class SuggestedAction(BaseModel):

@@ -315,6 +315,7 @@ def agent_chat(
         user_id=payload.user_id,
         public_id=payload.application_id,
         message=payload.message,
+        draft_context=payload.draft_context,
     )
 
 
@@ -335,6 +336,7 @@ def agent_chat_stream(
             user_id=payload.user_id,
             public_id=payload.application_id,
             message=payload.message,
+            draft_context=payload.draft_context,
         ):
             event_name = str(event["type"])
             data = {key: value for key, value in event.items() if key != "type"}

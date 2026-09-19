@@ -14,7 +14,7 @@ import { DocumentUploader } from "@/components/document-uploader";
 import { CitizenReviewSummary } from "@/components/source-review";
 import { api } from "@/lib/api";
 import { CANCELLABLE_STATUSES, OPEN_STATUSES, missingApplicantFields, submissionIssueFromError, type SubmissionIssueTarget, type SubmissionIssue } from "@/lib/intake";
-import type { AgentStreamEvent, Application, ChatMessageData, SafetyProgress, SourceReview } from "@/lib/types";
+import type { AgentStreamEvent, Application, ChatMessageData, SafetyProgress, SourceIntakeDraftContext, SourceReview } from "@/lib/types";
 import { getErrorMessage } from "@/lib/utils";
 import { useSession } from "@/contexts/session-context";
 
@@ -58,6 +58,7 @@ export default function ApplyPage() {
   const [error, setError] = useState<string | null>(null);
   const [submissionIssue, setSubmissionIssue] = useState<SubmissionIssue | null>(null);
   const [lineNotice, setLineNotice] = useState<string | null>(null);
+  const [sourceDraft, setSourceDraft] = useState<SourceIntakeDraftContext | null>(null);
 
   const hydrateApplication = useCallback((data: Application) => {
     setApplication(data);
@@ -182,7 +183,12 @@ export default function ApplyPage() {
     }
     try {
       await api.streamChat(
-        { user_id: user.id, application_id: application?.public_id, message },
+        {
+          user_id: user.id,
+          application_id: application?.public_id,
+          message,
+          draft_context: sourceDraft ?? undefined,
+        },
         updateAssistant,
       );
     } catch (err) {
@@ -244,6 +250,7 @@ export default function ApplyPage() {
     try {
       await api.cancelApplication(application.public_id);
       setActiveApplicationId(null);
+      setSourceDraft(null);
       started.current = false;
       await initialize();
     } catch (err) { setError(getErrorMessage(err)); }
@@ -304,7 +311,14 @@ export default function ApplyPage() {
                     <div><dt className="text-xs text-slate-500">申請身分</dt><dd className="font-semibold text-navy-900">{{ normal: "一般青年", special: "特定對象", language: "文化語言保存者" }[review?.applicant_data.applicant_type ?? "normal"]}</dd></div>
                   </dl>
                 ) : (
-                  <ApplicantForm key={editingDetails ? "edit" : "new"} publicId={application.public_id} initial={review?.applicant_data} disabled={!editable} onSaved={async (next) => { setEditingDetails(false); await onReview(next); }} />
+                  <ApplicantForm
+                    key={editingDetails ? "edit" : "new"}
+                    publicId={application.public_id}
+                    initial={review?.applicant_data}
+                    disabled={!editable}
+                    onDraftChange={setSourceDraft}
+                    onSaved={async (next) => { setSourceDraft(null); setEditingDetails(false); await onReview(next); }}
+                  />
                 )}
               </StepCard></div>
 
@@ -350,6 +364,7 @@ export default function ApplyPage() {
             </div>
           </Card>
           <ChatWindow messages={messages} loading={assistantLoading && assistantAwaiting}>
+            {sourceDraft ? <p role="status" className="mb-2 rounded-lg bg-amber-50 px-3 py-2 text-center text-[11px] font-medium text-amber-800">Agent 正在參考尚未儲存的表單內容；這不代表資料已送出。</p> : null}
             <QuickReplyButtons options={quickReplies} onSelect={(value) => void sendChat(value)} disabled={assistantLoading} />
             <ChatInput onSend={sendChat} disabled={assistantLoading} />
             <p className="mt-2 text-center text-[10px] text-slate-500">AI answers may be wrong. Verify important policy claims using the displayed sources.</p>

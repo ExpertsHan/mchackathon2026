@@ -5,6 +5,7 @@ from collections.abc import Iterator
 from typing import Any
 
 import openai
+import pytest
 from fastapi.testclient import TestClient
 
 from app.agent.prompts import ALLOWED_AGENT_TOOLS
@@ -240,6 +241,66 @@ def test_json_chat_uses_responses_api_and_persists_sanitized_history(
     ]
 
 
+def test_model_receives_only_validation_summary_for_unsaved_sensitive_draft(
+    client: TestClient, monkeypatch
+) -> None:
+    user_id, public_id = _login_and_create(client)
+    responses = _configure_openai(
+        monkeypatch,
+        [
+            [
+                {"type": "response.output_text.delta", "delta": "Please fix the amount."},
+                _completed(output_text="Please fix the amount."),
+            ]
+        ],
+    )
+    source_review_before = client.get(f"/api/applications/{public_id}").json()[
+        "source_review"
+    ]
+    raw_fields = {
+        "id_number": "A123456789",
+        "phone": "0912-345-678",
+        "birth_date": "1999-12-31",
+        "household_address": "新竹市秘密路 99 號",
+        "mailing_address": "新竹市私密街 8 號",
+        "original_amount": "19.99",
+        "declared_amount": "123456.78",
+    }
+    result = client.post(
+        "/api/agent/chat",
+        json={
+            "user_id": user_id,
+            "application_id": public_id,
+            "message": "Why can't I save the form?",
+            "draft_context": {
+                "kind": "source_intake",
+                    "fields": raw_fields,
+            },
+        },
+    )
+    assert result.status_code == 200, result.text
+    request_dump = json.dumps(responses.requests, ensure_ascii=False)
+    assert "unsaved_draft_validation" in request_dump
+    assert "birth_date" in request_dump
+    assert "valid" in request_dump
+    for raw_value in raw_fields.values():
+        assert raw_value not in request_dump
+
+    history = client.get(f"/api/agent/history?application_id={public_id}")
+    persisted = json.dumps(history.json(), ensure_ascii=False)
+    for raw_value in raw_fields.values():
+        assert raw_value not in persisted
+    audit_dump = json.dumps(
+        client.get(f"/api/admin/applications/{public_id}").json().get("audit_logs", []),
+        ensure_ascii=False,
+    )
+    for raw_value in raw_fields.values():
+        assert raw_value not in audit_dump
+    application = client.get(f"/api/applications/{public_id}")
+    assert application.status_code == 200, application.text
+    assert application.json()["source_review"] == source_review_before
+
+
 def test_policy_tool_returns_server_owned_citations(client: TestClient, monkeypatch) -> None:
     user_id, public_id = _login_and_create(client)
     call = {
@@ -365,6 +426,128 @@ def test_sse_without_key_uses_deterministic_guidance(client: TestClient, monkeyp
     assert any(name == "delta" for name, _ in events)
 
 
+def test_sse_uses_unsaved_draft_for_fallback_guidance(
+    client: TestClient, monkeypatch
+) -> None:
+    user_id, public_id = _login_and_create(client)
+    monkeypatch.setattr(settings, "openai_api_key", "")
+    response = client.post(
+        "/api/agent/chat/stream",
+        json={
+            "user_id": user_id,
+            "application_id": public_id,
+            "message": "Why can't I submit this form?",
+            "draft_context": {
+                "kind": "source_intake",
+                "fields": {"declared_amount": "nope"},
+            },
+        },
+    )
+    assert response.status_code == 200, response.text
+    events = _sse_events(response.text)
+    delta = "".join(data["text"] for name, data in events if name == "delta")
+    assert "Declared purchase amount" in delta
+    assert "number" in delta
+    assert [name for name, _ in events][0] == "start"
+    assert [name for name, _ in events][-1] == "done"
+
+
+def test_unsaved_invalid_amount_gets_deterministic_form_guidance(
+    client: TestClient, monkeypatch
+) -> None:
+    user_id, public_id = _login_and_create(client)
+    monkeypatch.setattr(settings, "openai_api_key", "")
+    response = client.post(
+        "/api/agent/chat",
+        json={
+            "user_id": user_id,
+            "application_id": public_id,
+            "message": "我為什麼不能送出？",
+            "draft_context": {
+                "kind": "source_intake",
+                "fields": {"declared_amount": "-300"},
+            },
+        },
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["ai_used"] is False
+    assert "申報購買金額" in body["message"]
+    assert "大於 0" in body["message"]
+    assert "receipt" not in body["message"].lower()
+
+
+def test_unsaved_field_how_to_question_gets_draft_guidance(
+    client: TestClient, monkeypatch
+) -> None:
+    user_id, public_id = _login_and_create(client)
+    monkeypatch.setattr(settings, "openai_api_key", "")
+    response = client.post(
+        "/api/agent/chat",
+        json={
+            "user_id": user_id,
+            "application_id": public_id,
+            "message": "申報購買金額這個欄位要怎麼填？",
+            "draft_context": {
+                "kind": "source_intake",
+                "fields": {"declared_amount": "NT$ABC"},
+            },
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert "請輸入數字" in response.json()["message"]
+
+
+@pytest.mark.parametrize(
+    ("fields", "expected"),
+    [
+        ({"declared_amount": "not money"}, "輸入數字"),
+        ({"declared_amount": "1000000.01"}, "1,000,000"),
+        ({"purchase_date": "2026-02-30"}, "YYYY-MM-DD"),
+        ({"payment_type": "weekly"}, "表單提供的選項"),
+    ],
+)
+def test_unsaved_draft_validation_explains_each_supported_error(
+    client: TestClient, monkeypatch, fields: dict[str, object], expected: str
+) -> None:
+    user_id, public_id = _login_and_create(client)
+    monkeypatch.setattr(settings, "openai_api_key", "")
+    response = client.post(
+        "/api/agent/chat",
+        json={
+            "user_id": user_id,
+            "application_id": public_id,
+            "message": "哪些欄位有問題，為什麼不能儲存？",
+            "draft_context": {"kind": "source_intake", "fields": fields},
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert expected in response.json()["message"]
+
+
+def test_form_help_about_policy_keeps_rag_citations(
+    client: TestClient, monkeypatch
+) -> None:
+    user_id, public_id = _login_and_create(client)
+    monkeypatch.setattr(settings, "openai_api_key", "")
+    response = client.post(
+        "/api/agent/chat",
+        json={
+            "user_id": user_id,
+            "application_id": public_id,
+            "message": "為什麼不能儲存？補助政策規定的購買日期期間是什麼？",
+            "draft_context": {
+                "kind": "source_intake",
+                "fields": {"purchase_date": "2026-02-30"},
+            },
+        },
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert "申報購買日期" in body["message"]
+    assert body["citations"]
+
+
 def test_agent_stops_after_configured_tool_rounds(client: TestClient, monkeypatch) -> None:
     user_id, public_id = _login_and_create(client)
     repeated_calls = [
@@ -459,3 +642,50 @@ def test_history_cannot_be_read_by_another_user(client: TestClient, monkeypatch)
     client.headers["Authorization"] = f"Bearer {login.json()['demo_token']}"
     forbidden = client.get(f"/api/agent/history?application_id={public_id}")
     assert forbidden.status_code == 404
+
+
+def test_draft_context_cannot_be_attached_to_another_users_application(
+    client: TestClient, monkeypatch
+) -> None:
+    monkeypatch.setattr(settings, "openai_api_key", "")
+    _, public_id = _login_and_create(client, "alex")
+    other_id = str(DEMO_USER_IDS["jamie"])
+    login = client.post("/api/demo/login", json={"user_id": other_id})
+    client.headers["Authorization"] = f"Bearer {login.json()['demo_token']}"
+    response = client.post(
+        "/api/agent/chat",
+        json={
+            "user_id": other_id,
+            "application_id": public_id,
+            "message": "Why can't I save?",
+            "draft_context": {
+                "kind": "source_intake",
+                "fields": {"declared_amount": "-1"},
+            },
+        },
+    )
+    assert response.status_code in {403, 404}
+
+
+@pytest.mark.parametrize(
+    "draft_context",
+    [
+        {"kind": "source_intake", "fields": {"unknown": "value"}},
+        {"kind": "source_intake", "fields": {"birth_date": "x" * 33}},
+        {"kind": "other_form", "fields": {}},
+    ],
+)
+def test_draft_context_rejects_unknown_or_oversized_input(
+    client: TestClient, draft_context: dict[str, object]
+) -> None:
+    user_id, public_id = _login_and_create(client)
+    response = client.post(
+        "/api/agent/chat",
+        json={
+            "user_id": user_id,
+            "application_id": public_id,
+            "message": "Help with this form.",
+            "draft_context": draft_context,
+        },
+    )
+    assert response.status_code == 422

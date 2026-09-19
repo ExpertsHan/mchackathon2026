@@ -164,6 +164,31 @@ export interface SourceReview {
 
 export interface ApplicationStatusInfo { public_id: string; status: ApplicationStatus; information_request: string | null; estimated_subsidy_twd: number | null; approved_amount_twd: number | null; updated_at: string }
 
+/** Raw, unsaved applicant-form values sent only with the next chat request. */
+export interface SourceIntakeDraftFields {
+  id_number?: string;
+  phone?: string;
+  birth_date?: string;
+  household_address?: string;
+  mailing_address?: string;
+  applicant_type?: string;
+  applicant_subtype?: string;
+  payment_type?: string;
+  software_category?: string;
+  applied_tool_name?: string;
+  software_company?: string;
+  purchase_date?: string;
+  is_own_credit_card?: boolean;
+  original_currency?: string;
+  original_amount?: string;
+  declared_amount?: string;
+}
+
+export interface SourceIntakeDraftContext {
+  kind: "source_intake";
+  fields: SourceIntakeDraftFields;
+}
+
 export interface TimelineEvent {
   key?: string;
   title: string;
@@ -187,6 +212,13 @@ export interface AgentResponse {
   suggested_actions: SuggestedAction[];
   ai_available?: boolean;
   state?: Record<string, unknown>;
+}
+
+export interface AgentChatRequest {
+  user_id: string;
+  application_id?: string;
+  message: string;
+  draft_context?: SourceIntakeDraftContext;
 }
 
 export interface AgentHistoryMessage {

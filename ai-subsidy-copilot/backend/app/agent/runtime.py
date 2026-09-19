@@ -11,6 +11,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from app.agent.drafts import DraftValidationSummary, summarize_draft
 from app.agent.graph import (
     _derive_state,
     _sanitize_chat_text,
@@ -23,7 +24,7 @@ from app.agent.state import AgentState, WorkflowStage
 from app.agent.tools import get_application, get_application_progress, search_policy_evidence
 from app.core.config import settings
 from app.core.enums import ActorType
-from app.schemas.api import AgentChatResponse, SuggestedAction
+from app.schemas.api import AgentChatResponse, SourceIntakeDraftContext, SuggestedAction
 from app.schemas.policy import PolicyCitation
 from app.services.audit import record_audit
 
@@ -158,6 +159,23 @@ def _instructions(progress: dict[str, object]) -> str:
     )
 
 
+def _instructions_with_draft(
+    progress: dict[str, object], draft_summary: DraftValidationSummary | None
+) -> str:
+    instructions = _instructions(progress)
+    if draft_summary is None:
+        return instructions
+    safe_summary = draft_summary.model_dump_json()
+    return (
+        f"{instructions}\n\n"
+        "The following JSON is a server-generated validation summary of an unsaved form draft. "
+        "It contains field states and error codes only, not the citizen's raw values. Treat it as "
+        "temporary, non-authoritative context: explain relevant errors, but never use it to decide "
+        "eligibility or claim that the form was saved.\n"
+        f"<unsaved_draft_validation>{safe_summary}</unsaved_draft_validation>"
+    )
+
+
 def _tool_calls(response: object) -> list[object]:
     return [
         item
@@ -227,12 +245,13 @@ def _openai_events(
     user_id: uuid.UUID,
     public_id: str | None,
     message: str,
+    draft_summary: DraftValidationSummary | None = None,
 ) -> Iterator[dict[str, object]]:
     from openai import OpenAI
 
     state = _derive_state(db, user_id, public_id)
     progress = get_application_progress(db, public_id, user_id)
-    instructions = _instructions(progress)
+    instructions = _instructions_with_draft(progress, draft_summary)
     input_items: list[dict[str, Any]] = _history_input(
         db,
         user_id=user_id,
@@ -332,6 +351,7 @@ def _gemini_events(
     user_id: uuid.UUID,
     public_id: str | None,
     message: str,
+    draft_summary: DraftValidationSummary | None = None,
 ) -> Iterator[dict[str, object]]:
     """Use Gemini through Google's OpenAI-compatible Chat Completions endpoint."""
 
@@ -340,7 +360,7 @@ def _gemini_events(
     state = _derive_state(db, user_id, public_id)
     progress = get_application_progress(db, public_id, user_id)
     messages: list[dict[str, Any]] = [
-        {"role": "system", "content": _instructions(progress)},
+        {"role": "system", "content": _instructions_with_draft(progress, draft_summary)},
         *_history_input(db, user_id=user_id, public_id=public_id, message=message),
     ]
     client = OpenAI(
@@ -459,12 +479,25 @@ def _model_events(
     user_id: uuid.UUID,
     public_id: str | None,
     message: str,
+    draft_summary: DraftValidationSummary | None = None,
 ) -> Iterator[dict[str, object]]:
     provider = settings.active_ai_provider
     if provider == "gemini":
-        return _gemini_events(db, user_id=user_id, public_id=public_id, message=message)
+        return _gemini_events(
+            db,
+            user_id=user_id,
+            public_id=public_id,
+            message=message,
+            draft_summary=draft_summary,
+        )
     if provider == "openai":
-        return _openai_events(db, user_id=user_id, public_id=public_id, message=message)
+        return _openai_events(
+            db,
+            user_id=user_id,
+            public_id=public_id,
+            message=message,
+            draft_summary=draft_summary,
+        )
     raise AgentRuntimeError("No AI provider is configured.")
 
 
@@ -474,17 +507,26 @@ def chat(
     user_id: uuid.UUID,
     public_id: str | None,
     message: str,
+    draft_context: SourceIntakeDraftContext | None = None,
 ) -> AgentChatResponse:
     """Return a complete response, retaining the legacy JSON endpoint."""
 
+    draft_summary = summarize_draft(draft_context)
     if not settings.ai_configured:
-        return deterministic_chat(db, user_id=user_id, public_id=public_id, message=message)
+        return deterministic_chat(
+            db,
+            user_id=user_id,
+            public_id=public_id,
+            message=message,
+            draft_summary=draft_summary,
+        )
     try:
         for event in _model_events(
             db,
             user_id=user_id,
             public_id=public_id,
             message=message,
+            draft_summary=draft_summary,
         ):
             if event["type"] == "complete":
                 response = event["response"]
@@ -493,7 +535,13 @@ def chat(
     except Exception:
         logger.exception("AI chat failed; falling back to deterministic guidance")
         db.rollback()
-    return deterministic_chat(db, user_id=user_id, public_id=public_id, message=message)
+    return deterministic_chat(
+        db,
+        user_id=user_id,
+        public_id=public_id,
+        message=message,
+        draft_summary=draft_summary,
+    )
 
 
 def stream_chat_events(
@@ -502,10 +550,12 @@ def stream_chat_events(
     user_id: uuid.UUID,
     public_id: str | None,
     message: str,
+    draft_context: SourceIntakeDraftContext | None = None,
 ) -> Iterator[dict[str, object]]:
     """Yield transport-neutral events for the SSE endpoint."""
 
     yield {"type": "start", "request_id": str(uuid.uuid4())}
+    draft_summary = summarize_draft(draft_context)
     emitted_text = False
     if settings.ai_configured:
         try:
@@ -514,6 +564,7 @@ def stream_chat_events(
                 user_id=user_id,
                 public_id=public_id,
                 message=message,
+                draft_summary=draft_summary,
             ):
                 if event["type"] == "delta":
                     emitted_text = True
@@ -556,7 +607,13 @@ def stream_chat_events(
                 }
                 return
 
-    fallback = deterministic_chat(db, user_id=user_id, public_id=public_id, message=message)
+    fallback = deterministic_chat(
+        db,
+        user_id=user_id,
+        public_id=public_id,
+        message=message,
+        draft_summary=draft_summary,
+    )
     yield {"type": "delta", "text": fallback.message}
     if fallback.citations:
         yield {

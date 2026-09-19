@@ -12,6 +12,10 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.agent.drafts import (
+    DraftValidationSummary,
+    deterministic_draft_guidance,
+)
 from app.agent.state import AgentIntent, AgentState, PersistedAgentState, WorkflowStage
 from app.agent.tools import (
     get_application,
@@ -220,6 +224,7 @@ def deterministic_chat(
     user_id: uuid.UUID,
     public_id: str | None,
     message: str,
+    draft_summary: DraftValidationSummary | None = None,
 ) -> AgentChatResponse:
     state = _derive_state(db, user_id, public_id)
     state.intent = _intent(message)
@@ -228,7 +233,61 @@ def deterministic_chat(
     ai_used = False
     notice = None
 
-    if state.intent == AgentIntent.FAQ:
+    draft_guidance = deterministic_draft_guidance(
+        draft_summary,
+        chinese=bool(re.search(r"[\u3400-\u9fff]", message)),
+    )
+    asks_about_form = bool(
+        re.search(
+            r"(?:不能|無法|沒辦法).*(?:送出|提交|儲存)|"
+            r"(?:送出|提交|儲存).*(?:不能|無法|沒辦法)|"
+            r"(?:哪個|哪些|什麼).*(?:欄位|資料).*(?:錯|問題)|"
+            r"(?:欄位|表單).*(?:怎麼|如何|填|錯|問題|幫)|"
+            r"(?:怎麼|如何|幫).*(?:欄位|表單|填寫)|"
+            r"why.*(?:submit|save)|what.*(?:field|form).*(?:wrong|invalid)|"
+            r"help.*(?:field|form)|how.*(?:fill|complete).*(?:field|form)",
+            message,
+            re.IGNORECASE,
+        )
+    )
+
+    if draft_guidance is not None and asks_about_form:
+        response_text = draft_guidance
+        asks_about_policy = bool(
+            re.search(
+                r"(?:政策|補助|資格|規定|文件|證明|期限|期間|policy|eligible|"
+                r"eligibility|document|evidence|deadline)",
+                message,
+                re.IGNORECASE,
+            )
+        )
+        if asks_about_policy:
+            policy_query = _sanitize_chat_text(message, limit=1800)
+            if draft_summary and "purchase_date" in draft_summary.dirty_fields:
+                policy_query = "deadline eligible period date 2026 purchase receipt"
+            answer = search_policy(db, policy_query)
+            response_text += f"\n\n政策說明：{answer.answer}"
+            citations = answer.citations
+            ai_used = answer.ai_used
+            notice = answer.notice
+            record_audit(
+                db,
+                action="POLICY_RETRIEVED",
+                actor_type=ActorType.AI_AGENT,
+                actor_identifier="ai-subsidy-copilot",
+                application=get_application(db, public_id, user_id) if public_id else None,
+                user_id=user_id,
+                details={
+                    "retrieved_sources": [
+                        {"document": item.document, "section": item.section}
+                        for item in citations
+                    ],
+                    "model": settings.openai_model if ai_used else None,
+                    "outcome": "answered" if answer.established else "not_established",
+                },
+            )
+            db.commit()
+    elif state.intent == AgentIntent.FAQ:
         # Policy retrieval may call an external embedding/model provider. Strip
         # incidental secrets first while preserving the citizen's policy query.
         answer = search_policy(db, _sanitize_chat_text(message, limit=2000))
