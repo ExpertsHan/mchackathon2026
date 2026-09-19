@@ -1,6 +1,8 @@
 /**
  * 一次性腳本：建立 Rich Menu、上傳底圖、設成預設選單。執行：node setup-rich-menu.js
  */
+// 同時讀取專案根目錄 .env（與 FastAPI 共用）與 ocr/.env；先載入者優先
+require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
 require('dotenv').config();
 const fs = require('fs');
 const path = require('path');

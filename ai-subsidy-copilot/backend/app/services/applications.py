@@ -301,7 +301,7 @@ def approve_application(
         },
     )
     db.flush()
-    notify_status(db, application)
+    notify_status(db, application, detail=reason.strip())
     return application
 
 
@@ -335,7 +335,7 @@ def reject_application(
     )
     release_claim_keys(db, application)
     db.flush()
-    notify_status(db, application)
+    notify_status(db, application, detail=reason.strip())
     return application
 
 

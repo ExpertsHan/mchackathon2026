@@ -7,3 +7,4 @@ pydantic-settings>=2.6,<3
 python-multipart>=0.0.12,<1
 pypdf>=5.0,<7
 openai>=3.3,<4
+certifi
