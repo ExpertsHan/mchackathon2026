@@ -2,65 +2,50 @@ from __future__ import annotations
 
 import threading
 import uuid
-from datetime import date
-from decimal import Decimal
 
 from sqlalchemy import create_engine, select
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session
 
-from app.models import Application, Base, Subscription, User
+from app.models import Application, Base, SourceDocument, User
 from app.services.claim_reservations import reserve_claim_keys
 
 
-def test_two_sessions_cannot_reserve_same_user_month(tmp_path) -> None:
+def test_two_sessions_cannot_reserve_the_same_receipt(tmp_path) -> None:
     engine = create_engine(
         f"sqlite:///{tmp_path / 'claims.db'}",
         connect_args={"check_same_thread": False, "timeout": 10},
     )
     Base.metadata.create_all(engine)
-    user_id = uuid.uuid4()
     application_ids: list[uuid.UUID] = []
+    shared_hash = "a" * 64
     with Session(engine) as setup:
-        setup.add(
-            User(
-                id=user_id,
-                name="Concurrent Citizen",
+        for index in range(2):
+            user = User(
+                id=uuid.uuid4(),
+                name=f"Concurrent Citizen {index}",
                 government_id_masked="D45****000",
                 age=30,
-                email="concurrent@example.test",
+                email=f"concurrent{index}@example.test",
                 identity_verified=True,
             )
-        )
-        for index in range(2):
-            receipt_hash = str(index + 1) * 64
-            subscription = Subscription(
-                user_id=user_id,
-                provider="OpenAI",
-                product="ChatGPT Plus",
-                amount=Decimal("20"),
-                currency="USD",
-                amount_twd=Decimal("600"),
-                purchase_date=date(2026, 9, 3 + index),
-                receipt_hash=receipt_hash,
-                extraction_confidence=1,
-                extraction_json={
-                    "provider": "OpenAI",
-                    "product": "ChatGPT Plus",
-                    "amount": "20",
-                    "currency": "USD",
-                    "purchase_date": f"2026-09-0{3 + index}",
-                    "confidence": 1,
-                },
-            )
-            setup.add(subscription)
+            setup.add(user)
             setup.flush()
-            application = Application(
-                public_id=f"AI-2026-90000{index}",
-                user_id=user_id,
-                subscription_id=subscription.id,
-            )
+            application = Application(public_id=f"AI-2026-90000{index}", user_id=user.id)
             setup.add(application)
             setup.flush()
+            setup.add(
+                SourceDocument(
+                    application_id=application.id,
+                    document_type="receipt",
+                    original_filename="receipt.pdf",
+                    storage_filename=f"{index}.pdf",
+                    content_type="application/pdf",
+                    size_bytes=1,
+                    sha256=shared_hash,
+                    ocr_status="done",
+                    ocr_data={},
+                )
+            )
             application_ids.append(application.id)
         setup.commit()
 
@@ -71,11 +56,7 @@ def test_two_sessions_cannot_reserve_same_user_month(tmp_path) -> None:
     def worker(application_id: uuid.UUID) -> None:
         try:
             with Session(engine) as db:
-                application = db.scalar(
-                    select(Application)
-                    .where(Application.id == application_id)
-                    .options(selectinload(Application.subscription))
-                )
+                application = db.scalar(select(Application).where(Application.id == application_id))
                 assert application is not None
                 barrier.wait(timeout=5)
                 conflicts = reserve_claim_keys(db, application)
@@ -94,4 +75,4 @@ def test_two_sessions_cannot_reserve_same_user_month(tmp_path) -> None:
     assert len(results) == 2
     assert sum(not conflicts for conflicts in results) == 1
     loser = next(conflicts for conflicts in results if conflicts)
-    assert any(key.startswith(f"MONTH:{user_id}:2026-09") for key in loser)
+    assert f"RECEIPT:{shared_hash}" in loser

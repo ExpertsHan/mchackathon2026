@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Generator
 from contextlib import contextmanager
 
-from sqlalchemy import create_engine, event, text
+from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -66,6 +66,36 @@ def init_db() -> None:
         with engine.begin() as connection:
             connection.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
     Base.metadata.create_all(bind=engine)
+    _add_missing_columns()
+
+
+def _add_missing_columns() -> None:
+    """Additive, idempotent column upgrade for databases created by an older release.
+
+    ``create_all`` never alters existing tables. Only nullable/defaulted columns are
+    added, so existing rows stay valid and no data is rewritten.
+    """
+
+    inspector = inspect(engine)
+    for table in Base.metadata.sorted_tables:
+        if not inspector.has_table(table.name):
+            continue
+        present = {column["name"] for column in inspector.get_columns(table.name)}
+        for column in table.columns:
+            if column.name in present or column.primary_key:
+                continue
+            column_type = column.type.compile(dialect=engine.dialect)
+            default = ""
+            if not column.nullable:
+                if isinstance(column.default.arg if column.default is not None else None, bool):
+                    default = f" DEFAULT {'TRUE' if column.default.arg else 'FALSE'}"
+                else:
+                    continue  # Cannot add a NOT NULL column without a safe default.
+            statement = (
+                f'ALTER TABLE "{table.name}" ADD COLUMN "{column.name}" {column_type}{default}'
+            )
+            with engine.begin() as connection:
+                connection.execute(text(statement))
 
 
 __all__ = ["Base", "SessionLocal", "engine", "get_db", "init_db", "session_scope"]

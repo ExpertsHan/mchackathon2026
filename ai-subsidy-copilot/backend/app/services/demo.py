@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import uuid
-from datetime import date
 from decimal import Decimal
 
 from sqlalchemy import delete, select
@@ -18,6 +17,7 @@ from app.core.enums import (
     PaymentStatus,
     RiskLevel,
 )
+from app.core.identity import hash_government_id, mask_government_id
 from app.models import (
     AgentSession,
     Application,
@@ -45,6 +45,13 @@ DEMO_USER_IDS = {
     "taylor": uuid.UUID("33333333-3333-4333-8333-333333333333"),
 }
 
+# Fictional national IDs. Only the masked form and a keyed hash are persisted.
+DEMO_GOVERNMENT_IDS = {
+    "alex": "A123456789",
+    "jamie": "B234567456",
+    "taylor": "C345678123",
+}
+
 DEMO_USERS = (
     {
         "id": DEMO_USER_IDS["alex"],
@@ -66,7 +73,7 @@ DEMO_USERS = (
         "id": DEMO_USER_IDS["taylor"],
         "name": "Taylor Wang",
         "government_id_masked": "C34****123",
-        "age": 17,
+        "age": 45,
         "email": "taylor@example.test",
         "identity_verified": True,
     },
@@ -161,9 +168,17 @@ def _duplicate_receipt_hash() -> str:
 def seed_demo_data(db: Session, *, ingest_policy: bool = True) -> None:
     """Seed missing records without changing user-created demo applications."""
 
-    for values in DEMO_USERS:
-        if db.get(User, values["id"]) is None:
-            db.add(User(**values))
+    for key, values in zip(DEMO_GOVERNMENT_IDS, DEMO_USERS, strict=True):
+        government_id = DEMO_GOVERNMENT_IDS[key]
+        digest = hash_government_id(government_id)
+        user = db.get(User, values["id"])
+        if user is None:
+            db.add(User(**values, government_id_hash=digest))
+        else:
+            # Keep older demo databases aligned with the current fictional identities.
+            user.government_id_hash = digest
+            user.government_id_masked = mask_government_id(government_id)
+            user.age = values["age"]
     db.flush()
 
     for values in SAFETY_MODULES:
@@ -204,90 +219,31 @@ def seed_demo_data(db: Session, *, ingest_policy: bool = True) -> None:
     # One historical successful claim makes the duplicate-receipt scenario real.
     historical = db.scalar(select(Application).where(Application.public_id == "AI-2026-000001"))
     if historical is None:
-        subscription = Subscription(
-            user_id=DEMO_USER_IDS["jamie"],
-            provider="Notion",
-            product="Notion AI",
-            amount=Decimal("480.00"),
-            currency="TWD",
-            amount_twd=Decimal("480.00"),
-            purchase_date=date(2026, 6, 12),
-            receipt_filename="duplicate_receipt.pdf",
-            receipt_storage_path=None,
-            receipt_hash=_duplicate_receipt_hash(),
-            receipt_reference="DEMO-NOTION-001",
-            account_email="seeded-claim@example.test",
-            extraction_confidence=1.0,
-            extraction_json={
-                "provider": "Notion",
-                "product": "Notion AI",
-                "amount": "480.00",
-                "currency": "TWD",
-                "purchase_date": "2026-06-12",
-                "receipt_reference": "DEMO-NOTION-001",
-                "confidence": 1.0,
-            },
-        )
-        db.add(subscription)
-        db.flush()
+        receipt_hash = _duplicate_receipt_hash()
         historical = Application(
             public_id="AI-2026-000001",
             user_id=DEMO_USER_IDS["jamie"],
-            subscription_id=subscription.id,
-            requested_amount_twd=Decimal("480.00"),
-            approved_amount_twd=Decimal("480.00"),
+            requested_amount_twd=Decimal("240.00"),
+            approved_amount_twd=Decimal("240.00"),
             eligibility_result=EligibilityOutcome.ELIGIBLE,
             eligibility_reasons_json=[
                 {
-                    "rule": "AGE_REQUIREMENT",
+                    "rule": "RULE-001",
+                    "name": "年齡",
                     "passed": True,
-                    "message": "Applicant is 25, meeting the minimum age of 18.",
+                    "message": "申請人年齡符合 16~40 歲。",
                     "blocking": False,
                     "requires_manual_review": False,
+                    "result": None,
                 },
                 {
-                    "rule": "IDENTITY_VERIFIED",
+                    "rule": "RULE-020",
+                    "name": "補助金額試算",
                     "passed": True,
-                    "message": "Demo identity verification is complete.",
+                    "message": "試算補助金額 240 元（費率 50%，上限 3000 元）。",
                     "blocking": False,
                     "requires_manual_review": False,
-                },
-                {
-                    "rule": "ELIGIBLE_PRODUCT",
-                    "passed": True,
-                    "message": "Notion AI is an eligible AI subscription.",
-                    "blocking": False,
-                    "requires_manual_review": False,
-                },
-                {
-                    "rule": "VALID_PURCHASE_DATE",
-                    "passed": True,
-                    "message": "Receipt date 2026-06-12 is inside the 2026 demo period.",
-                    "blocking": False,
-                    "requires_manual_review": False,
-                },
-                {
-                    "rule": "RECEIPT_NOT_DUPLICATED",
-                    "passed": True,
-                    "message": "No active duplicate was found at decision time.",
-                    "blocking": False,
-                    "requires_manual_review": False,
-                },
-                {
-                    "rule": "MONTHLY_LIMIT",
-                    "passed": True,
-                    "message": "No successful claim existed for the month at decision time.",
-                    "blocking": False,
-                    "requires_manual_review": False,
-                },
-                {
-                    "rule": "SAFETY_TRAINING_COMPLETED",
-                    "passed": True,
-                    "message": (
-                        "Optional AI safety learning was complete; it did not affect eligibility."
-                    ),
-                    "blocking": False,
-                    "requires_manual_review": False,
+                    "result": None,
                 },
             ],
             policy_citations_json=[
@@ -295,7 +251,7 @@ def seed_demo_data(db: Session, *, ingest_policy: bool = True) -> None:
                     "document": "AI Subsidy Program 2026",
                     "section": "Article 5 — Eligible Products",
                     "article": "Article 5",
-                    "version": "2026.1",
+                    "version": "2026.2",
                 }
             ],
             risk_level=RiskLevel.LOW,
@@ -305,9 +261,37 @@ def seed_demo_data(db: Session, *, ingest_policy: bool = True) -> None:
         )
         db.add(historical)
         db.flush()
+        db.add(
+            SourceReview(
+                application_id=historical.id,
+                applicant_data={"applied_tool_name": "Notion AI", "applicant_type": "normal"},
+                evaluation={},
+                documents_required=True,
+            )
+        )
+        db.add(
+            SourceDocument(
+                application_id=historical.id,
+                document_type="receipt",
+                original_filename="duplicate_receipt.pdf",
+                storage_filename="seed-duplicate-receipt.pdf",
+                content_type="application/pdf",
+                size_bytes=0,
+                sha256=receipt_hash,
+                ocr_status="done",
+                ocr_data={
+                    "company_name": "Notion",
+                    "product_name": "Notion AI",
+                    "original_amount": 480,
+                    "converted_twd_amount": 480,
+                    "purchase_date": "2026-06-12",
+                    "receipt_reference": "DEMO-NOTION-001",
+                },
+            )
+        )
         payment = Payment(
             application_id=historical.id,
-            amount_twd=Decimal("480.00"),
+            amount_twd=Decimal("240.00"),
             status=PaymentStatus.PAID,
             transaction_id="GOVPAY-DEMO-SEED0001",
             scheduled_at=utcnow(),
@@ -317,18 +301,18 @@ def seed_demo_data(db: Session, *, ingest_policy: bool = True) -> None:
         db.add_all(
             [
                 ClaimReservation(
-                    reservation_key=f"RECEIPT:{subscription.receipt_hash}",
+                    reservation_key=f"RECEIPT:{receipt_hash}",
                     application_id=historical.id,
                 ),
                 ClaimReservation(
-                    reservation_key=f"MONTH:{historical.user_id}:2026-06",
+                    reservation_key="REF:notion:demo-notion-001",
                     application_id=historical.id,
                 ),
             ]
         )
         for action, actor in (
             ("APPLICATION_CREATED", ActorType.CITIZEN),
-            ("RECEIPT_UPLOADED", ActorType.CITIZEN),
+            ("SOURCE_DOCUMENT_UPLOADED", ActorType.CITIZEN),
             ("ELIGIBILITY_EVALUATED", ActorType.RULE_ENGINE),
             ("APPLICATION_SUBMITTED", ActorType.CITIZEN),
             ("APPLICATION_APPROVED", ActorType.RULE_ENGINE),

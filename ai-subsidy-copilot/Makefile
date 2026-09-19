@@ -4,7 +4,7 @@ BACKEND_VENV := backend/.venv
 BACKEND_PY := $(BACKEND_VENV)/bin/python
 BACKEND_PIP := $(BACKEND_VENV)/bin/pip
 
-.PHONY: install dev stop init seed ingest reset smoke test backend-test frontend-check lint typecheck build dev-backend dev-frontend assets clean-docker
+.PHONY: sync-tools install dev stop init seed ingest reset smoke test backend-test frontend-check lint typecheck build dev-backend dev-frontend assets clean-docker
 
 install:
 	python3 -m venv $(BACKEND_VENV)
@@ -34,6 +34,9 @@ reset:
 
 smoke:
 	python3 scripts/smoke_demo.py
+
+sync-tools:
+	node ocr/export-register.js
 
 assets:
 	python3 scripts/verify_demo_assets.py

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import date
-from decimal import Decimal
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
@@ -40,11 +38,15 @@ class Settings(BaseSettings):
     agent_max_output_tokens: int = Field(default=600, ge=64, le=4000)
     agent_max_tool_rounds: int = Field(default=2, ge=1, le=4)
     gemini_ocr_model: str = "gemini-2.5-flash"
-    ocr_module_dir: Path = BACKEND_ROOT.parent.parent / "OCR"
+    ocr_module_dir: Path = BACKEND_ROOT.parent / "ocr"
     ocr_node_binary: str = "node"
     ocr_timeout_seconds: int = Field(default=55, ge=5, le=120)
     max_source_documents: int = Field(default=30, ge=1, le=100)
+    # Shared secret for the LINE bot process calling /api/internal/line/*; the
+    # endpoints are disabled while it is empty.
     line_integration_secret: str = ""
+    line_channel_access_token: str = ""
+    line_link_code_ttl_minutes: int = Field(default=30, ge=1, le=1440)
 
     frontend_origin: str = "http://localhost:3000"
     cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
@@ -55,10 +57,8 @@ class Settings(BaseSettings):
     max_pdf_pages: int = Field(default=10, ge=1, le=100)
     max_extracted_chars: int = Field(default=50_000, ge=1_000, le=1_000_000)
 
-    program_effective_from: date = date(2026, 1, 1)
-    program_effective_to: date = date(2026, 12, 31)
-    maximum_subsidy_twd: Decimal = Decimal("600")
-    minimum_extraction_confidence: float = Field(default=0.75, ge=0, le=1)
+    # Eligibility, the acceptance period and subsidy rates/caps are owned by the OCR
+    # rule engine (ocr/eligibility.js, RULE-001~020); Python never re-derives them.
     embedding_dimensions: int = Field(default=1536, ge=1)
 
     model_config = SettingsConfigDict(
@@ -107,14 +107,6 @@ class Settings(BaseSettings):
     @property
     def allowed_origins(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
-
-    @property
-    def mock_exchange_rates(self) -> dict[str, Decimal]:
-        return {
-            "TWD": Decimal("1"),
-            "USD": Decimal("30"),
-            "EUR": Decimal("32"),
-        }
 
 
 @lru_cache

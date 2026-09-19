@@ -1,0 +1,237 @@
+[
+  {
+    "name": "ChatGPT",
+    "company": "OpenAI",
+    "eligible": true,
+    "reason": null,
+    "aliases": [
+      "chatgpt",
+      "openai"
+    ]
+  },
+  {
+    "name": "Google AI 訂閱方案",
+    "company": "Google",
+    "eligible": true,
+    "reason": null,
+    "aliases": [
+      "google ai 訂閱方案",
+      "google ai",
+      "gemini",
+      "google one ai premium"
+    ]
+  },
+  {
+    "name": "Grok",
+    "company": "xAI",
+    "eligible": true,
+    "reason": null,
+    "aliases": [
+      "grok",
+      "xai"
+    ]
+  },
+  {
+    "name": "Claude",
+    "company": "Anthropic",
+    "eligible": true,
+    "reason": null,
+    "aliases": [
+      "claude",
+      "anthropic"
+    ]
+  },
+  {
+    "name": "Perplexity",
+    "company": "Perplexity AI",
+    "eligible": true,
+    "reason": null,
+    "aliases": [
+      "perplexity"
+    ]
+  },
+  {
+    "name": "Canva AI",
+    "company": "Canva",
+    "eligible": true,
+    "reason": null,
+    "aliases": [
+      "canva ai",
+      "canva"
+    ]
+  },
+  {
+    "name": "Adobe Firefly",
+    "company": "Adobe",
+    "eligible": true,
+    "reason": null,
+    "aliases": [
+      "adobe firefly",
+      "firefly",
+      "adobe creative cloud"
+    ]
+  },
+  {
+    "name": "Midjourney",
+    "company": "Midjourney",
+    "eligible": true,
+    "reason": null,
+    "aliases": [
+      "midjourney"
+    ]
+  },
+  {
+    "name": "Figma AI",
+    "company": "Figma",
+    "eligible": true,
+    "reason": null,
+    "aliases": [
+      "figma ai",
+      "figma"
+    ]
+  },
+  {
+    "name": "Microsoft Copilot",
+    "company": "Microsoft",
+    "eligible": true,
+    "reason": null,
+    "aliases": [
+      "microsoft copilot",
+      "copilot",
+      "microsoft 365 copilot"
+    ]
+  },
+  {
+    "name": "Copy.ai",
+    "company": "Copy.ai",
+    "eligible": true,
+    "reason": null,
+    "aliases": [
+      "copy.ai"
+    ]
+  },
+  {
+    "name": "Notion AI",
+    "company": "Notion Labs",
+    "eligible": true,
+    "reason": null,
+    "aliases": [
+      "notion ai",
+      "notion"
+    ]
+  },
+  {
+    "name": "Jasper",
+    "company": "Jasper",
+    "eligible": true,
+    "reason": null,
+    "aliases": [
+      "jasper"
+    ]
+  },
+  {
+    "name": "Grammarly",
+    "company": "Grammarly",
+    "eligible": true,
+    "reason": null,
+    "aliases": [
+      "grammarly"
+    ]
+  },
+  {
+    "name": "Speak",
+    "company": "Speak",
+    "eligible": true,
+    "reason": null,
+    "aliases": [
+      "speak"
+    ]
+  },
+  {
+    "name": "Elicit",
+    "company": "Elicit",
+    "eligible": true,
+    "reason": null,
+    "aliases": [
+      "elicit"
+    ]
+  },
+  {
+    "name": "Cursor",
+    "company": "Anysphere",
+    "eligible": true,
+    "reason": null,
+    "aliases": [
+      "cursor"
+    ]
+  },
+  {
+    "name": "CapCut",
+    "company": "字節跳動 ByteDance",
+    "eligible": false,
+    "reason": "中國大陸（字節跳動）開發/營運，屬禁止清單",
+    "aliases": [
+      "capcut",
+      "剪映"
+    ]
+  },
+  {
+    "name": "Kling 可靈",
+    "company": "快手 Kuaishou",
+    "eligible": false,
+    "reason": "中國大陸（快手）開發/營運，屬禁止清單",
+    "aliases": [
+      "kling 可靈",
+      "kling",
+      "可靈"
+    ]
+  },
+  {
+    "name": "Meitu 美圖秀秀",
+    "company": "Meitu 美圖公司",
+    "eligible": false,
+    "reason": "中國大陸（美圖公司）開發/營運，屬禁止清單",
+    "aliases": [
+      "meitu 美圖秀秀",
+      "meitu",
+      "美圖秀秀"
+    ]
+  },
+  {
+    "name": "Wink",
+    "company": "Meitu 美圖公司",
+    "eligible": false,
+    "reason": "中國大陸（美圖公司）開發/營運，屬禁止清單",
+    "aliases": [
+      "wink"
+    ]
+  },
+  {
+    "name": "WHEE",
+    "company": "Meitu 美圖公司",
+    "eligible": false,
+    "reason": "中國大陸（美圖公司）開發/營運，屬禁止清單",
+    "aliases": [
+      "whee"
+    ]
+  },
+  {
+    "name": "SenseAvatar",
+    "company": "SenseTime 商湯",
+    "eligible": false,
+    "reason": "中國大陸（商湯）開發/營運，屬禁止清單",
+    "aliases": [
+      "senseavatar",
+      "sense avatar"
+    ]
+  },
+  {
+    "name": "Manus",
+    "company": "蝴蝶效應 Butterfly Effect",
+    "eligible": false,
+    "reason": "中國大陸（蝴蝶效應）開發/營運，屬禁止清單",
+    "aliases": [
+      "manus"
+    ]
+  }
+]

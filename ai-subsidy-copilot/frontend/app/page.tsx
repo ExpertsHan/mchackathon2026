@@ -56,7 +56,7 @@ export default function HomePage() {
               Apply smarter.<br /><span className="text-teal-700">Learn safer.</span><br />Track every dollar.
             </h1>
             <p className="mt-6 max-w-2xl text-lg leading-8 text-slate-600">
-              Get up to <strong className="font-extrabold text-navy-900">NT$600</strong> toward an eligible AI subscription, with clear policy guidance at every step.
+              Get <strong className="font-extrabold text-navy-900">50–90%</strong> of an eligible AI subscription back (up to NT$3,000 / NT$6,000), with clear policy guidance at every step.
             </p>
             <div className="mt-8 flex flex-col gap-3 sm:flex-row">
               <Button asChild size="lg">
@@ -83,7 +83,7 @@ export default function HomePage() {
               </div>
               <div className="space-y-5 p-5 sm:p-6">
                 <div className="rounded-xl rounded-tl-sm bg-navy-50 p-4 text-sm leading-6 text-navy-900">
-                  Hi Alex. ChatGPT Plus is included in the current demo program. Upload your receipt when you’re ready.
+                  Hi Alex. ChatGPT is included in the current program. Upload your documents when you’re ready.
                   <div className="mt-3 inline-flex items-center gap-2 rounded-lg border border-navy-100 bg-white px-2.5 py-1.5 text-xs font-bold text-navy-700">
                     <FileSearch className="size-3.5" /> Policy · Article 5
                   </div>
@@ -91,7 +91,7 @@ export default function HomePage() {
                 <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-2 rounded-xl border border-line bg-white p-4 shadow-sm">
                   <span className="row-span-2 grid size-10 place-items-center rounded-lg bg-teal-50 text-teal-700"><ReceiptText className="size-5" /></span>
                   <p className="text-sm font-bold text-navy-900">Receipt analyzed</p>
-                  <p className="text-xs text-slate-500">ChatGPT Plus · USD 20 · Aug 18, 2026</p>
+                  <p className="text-xs text-slate-500">ChatGPT Plus · USD 20 · Jul 10, 2026</p>
                 </div>
                 <div className="space-y-2.5">
                   {checks.map((item) => (

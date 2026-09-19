@@ -1,12 +1,14 @@
-"""OCR intake, source comparison and human-review recommendations.
+"""Document intake, OCR and the rule-engine evaluation of an application.
 
-OCR policy calculations are advisory. Copilot remains the authority for eligibility
-and mock payment amounts. Opting into document intake requires human verification.
+The OCR engine (RULE-001~020) is the authority for eligibility and the trial subsidy
+amount. This module stores documents, drives the engine through ``ocr_bridge`` and
+exposes the result. It never approves an application or moves money.
 """
 
 from __future__ import annotations
 
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 from pathlib import Path
 
@@ -14,16 +16,65 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.core.enums import ActorType, ApplicationStatus, EligibilityOutcome, RiskLevel
+from app.core.enums import ActorType, ApplicationStatus
 from app.core.errors import DomainError, ResourceNotFound
-from app.models import Application, SourceDocument, SourceReview, Subscription, utcnow
+from app.core.identity import hash_government_id
+from app.models import Application, SourceDocument, SourceReview, User, utcnow
 from app.schemas.source_review import SourceApplicantInput
 from app.services.audit import record_audit
 from app.services.ocr_bridge import OcrUnavailable, call_bridge, extract_document
 from app.services.receipts import ReceiptError, extract_pdf_text, sha256_bytes, validate_upload
 
 EDITABLE = {ApplicationStatus.DRAFT, ApplicationStatus.REQUESTED_INFORMATION}
-POLICY_NOTICE = "OCR 的年齡、受理期間與補助試算供複核參考；核定資格及撥款金額依 Copilot 示範政策。"
+# A person may have only one application in flight. Approved and paid cases are finished
+# from the applicant's side, so they do not block a later application.
+OPEN_STATUSES = {
+    ApplicationStatus.DRAFT,
+    ApplicationStatus.SUBMITTED,
+    ApplicationStatus.VERIFYING,
+    ApplicationStatus.MANUAL_REVIEW,
+    ApplicationStatus.REQUESTED_INFORMATION,
+}
+DUPLICATE_SCOPE_STATUSES = {
+    ApplicationStatus.SUBMITTED,
+    ApplicationStatus.VERIFYING,
+    ApplicationStatus.MANUAL_REVIEW,
+    ApplicationStatus.REQUESTED_INFORMATION,
+    ApplicationStatus.APPROVED,
+    ApplicationStatus.PAYMENT_SCHEDULED,
+    ApplicationStatus.PAID,
+}
+POLICY_NOTICE = (
+    "資格與補助金額由 RULE-001~020 規則引擎判定；AI 不會自動核准，"
+    "所有案件都須由承辦人員複核後才會進入撥款。"
+)
+DOCUMENT_LABELS = {
+    "id_card": "身分證正反面照片",
+    "receipt": "購買憑證/發票",
+    "passbook": "存摺封面影本",
+    "declaration": "切結書",
+    "cultural_proof": "特定對象及文化語言保存者證明文件",
+    "payer_declaration": "父母、配偶或法定代理人代為支付切結書",
+}
+# These types accumulate several images (both sides of an ID, invoice + statement).
+MULTI_FILE_TYPES = {"id_card", "receipt"}
+OCR_TYPES = ("receipt", "id_card", "passbook")
+REQUIRED_APPLICANT_FIELDS = {
+    "phone": "聯絡電話",
+    "birth_date": "出生日期",
+    "household_address": "戶籍地址",
+    "mailing_address": "通訊地址",
+    "applied_tool_name": "軟體名稱",
+    "software_company": "軟體公司名稱",
+    "purchase_date": "購買日期",
+    "original_currency": "原始費用幣別",
+    "original_amount": "原始費用",
+    "declared_amount": "換算新臺幣",
+}
+
+
+def _today() -> date:
+    return date.today()
 
 
 def ensure_editable(application: Application) -> None:
@@ -58,10 +109,102 @@ def documents_for(
     return list(db.scalars(query.order_by(SourceDocument.created_at, SourceDocument.id)).all())
 
 
+def required_document_types(applicant_data: dict) -> list[str]:
+    """Documents the applicant must attach, given the declared identity and payer."""
+
+    required = ["id_card", "receipt", "passbook", "declaration"]
+    if applicant_data.get("applicant_type", "normal") != "normal":
+        required.append("cultural_proof")
+    if applicant_data.get("is_own_credit_card") is False:
+        required.append("payer_declaration")
+    return required
+
+
+def document_status(db: Session, application: Application) -> list[dict]:
+    review = get_review(db, application)
+    counts: dict[str, int] = {}
+    for document in documents_for(db, application):
+        counts[document.document_type] = counts.get(document.document_type, 0) + 1
+    return [
+        {
+            "document_type": kind,
+            "label": DOCUMENT_LABELS[kind],
+            "multiple": kind in MULTI_FILE_TYPES,
+            "uploaded_count": counts.get(kind, 0),
+        }
+        for kind in required_document_types(review.applicant_data)
+    ]
+
+
+def missing_documents(db: Session, application: Application) -> list[dict]:
+    return [
+        {"document_type": item["document_type"], "label": item["label"], "reason": "尚未上傳"}
+        for item in document_status(db, application)
+        if item["uploaded_count"] == 0
+    ]
+
+
+def progress_snapshot(db: Session, application: Application) -> dict:
+    """Non-sensitive intake progress used by the assistant and tracking views."""
+
+    review = get_review(db, application)
+    data = review.applicant_data
+    statuses = document_status(db, application)
+    return {
+        "tool": data.get("applied_tool_name"),
+        "company": data.get("software_company"),
+        "applicant_missing": missing_applicant_fields(review),
+        "receipt_uploaded": any(
+            item["document_type"] == "receipt" and item["uploaded_count"] for item in statuses
+        ),
+        "missing_documents": [item["label"] for item in statuses if not item["uploaded_count"]],
+        "evaluated": bool(review.evaluation.get("result")),
+        "ai_result": review.evaluation.get("result"),
+    }
+
+
+def missing_applicant_fields(review: SourceReview) -> list[str]:
+    data = review.applicant_data
+    missing = [label for key, label in REQUIRED_APPLICANT_FIELDS.items() if not data.get(key)]
+    if data.get("applicant_type", "normal") != "normal" and not data.get("applicant_subtype"):
+        missing.append("身分類別")
+    return missing
+
+
+def _check_person_has_no_other_open_application(
+    db: Session, application: Application, digest: str
+) -> None:
+    other = db.scalar(
+        select(Application.public_id)
+        .join(User, Application.user_id == User.id)
+        .where(
+            User.government_id_hash == digest,
+            Application.id != application.id,
+            Application.status.in_(OPEN_STATUSES),
+        )
+        .limit(1)
+    )
+    if other:
+        raise DomainError(
+            "ACTIVE_APPLICATION_EXISTS",
+            "此身分證字號已有一筆申請案正在處理中，同一人同時間只能有一筆申請。",
+            status_code=409,
+        )
+
+
 def save_applicant(db: Session, application: Application, payload: SourceApplicantInput) -> None:
     ensure_editable(application)
+    user = application.user
+    if payload.id_number:
+        digest = hash_government_id(payload.id_number)
+        if user.government_id_hash and user.government_id_hash != digest:
+            raise DomainError(
+                "ID_NUMBER_MISMATCH", "身分證字號與登入的申請人身分不符。", status_code=409
+            )
+        _check_person_has_no_other_open_application(db, application, digest)
+        user.government_id_hash = digest
     review = get_review(db, application)
-    review.applicant_data = payload.model_dump(mode="json")
+    review.applicant_data = payload.model_dump(mode="json", exclude={"id_number"})
     review.documents_required = True
     record_audit(
         db,
@@ -70,46 +213,6 @@ def save_applicant(db: Session, application: Application, payload: SourceApplica
         str(application.user_id),
         application=application,
     )
-    analyze_sources(db, application)
-
-
-def record_receipt(db: Session, application: Application, stored) -> None:
-    # The primary receipt endpoint replaces the prior primary receipt, preserving history.
-    for document in documents_for(db, application):
-        if document.document_type == "receipt":
-            document.active = False
-    extracted = stored.extraction
-    fields: dict = {}
-    mappings = {
-        "company_name": extracted.provider,
-        "product_name": extracted.product,
-        "original_amount": float(extracted.amount) if extracted.amount is not None else None,
-        "currency": extracted.currency,
-        "purchase_date": extracted.purchase_date.isoformat() if extracted.purchase_date else None,
-        "buyer_email": extracted.account_email,
-        "receipt_reference": extracted.receipt_reference,
-    }
-    for key, value in mappings.items():
-        if value is not None and key not in fields:
-            fields[key] = value
-    # Only literal TWD amounts belong to OCR evidence; mock FX is a different source.
-    if extracted.currency == "TWD" and extracted.amount is not None:
-        fields.setdefault("converted_twd_amount", float(extracted.amount))
-    fields["_confidence"] = {key: extracted.confidence for key in fields}
-    db.add(
-        SourceDocument(
-            application_id=application.id,
-            document_type="receipt",
-            original_filename=stored.original_filename,
-            storage_filename=stored.storage_filename,
-            content_type=stored.content_type,
-            size_bytes=stored.size_bytes,
-            sha256=stored.sha256,
-            ocr_status="done" if mappings["product_name"] else "skipped",
-            ocr_data=fields,
-        )
-    )
-    db.flush()
     analyze_sources(db, application)
 
 
@@ -147,17 +250,24 @@ def upload_document(
         validated.append((name, mime, data))
     review = get_review(db, application)
     review.documents_required = True
-    if replace:
+    # Single-file types keep only the newest upload; earlier ones stay as inactive history.
+    if replace or document_type not in MULTI_FILE_TYPES:
         for document in documents_for(db, application):
             if document.document_type == document_type:
                 document.active = False
     root = settings.receipt_storage_dir.resolve()
     root.mkdir(parents=True, exist_ok=True)
+    with ThreadPoolExecutor(max_workers=len(validated)) as pool:
+        results = list(
+            pool.map(
+                lambda item: extract_document(item[2], Path(item[0]).suffix.lower(), document_type),
+                validated,
+            )
+        )
     written: list[Path] = []
     try:
-        for name, mime, data in validated:
+        for (name, mime, data), result in zip(validated, results, strict=True):
             suffix = Path(name).suffix.lower()
-            result = extract_document(data, suffix, document_type)
             storage_name = f"{uuid.uuid4().hex}{suffix}"
             destination = root / storage_name
             destination.write_bytes(data)
@@ -197,57 +307,77 @@ def upload_document(
 def _duplicate_reference(
     db: Session, application: Application, documents: list[SourceDocument]
 ) -> str | None:
-    active_statuses = {
-        ApplicationStatus.SUBMITTED,
-        ApplicationStatus.VERIFYING,
-        ApplicationStatus.MANUAL_REVIEW,
-        ApplicationStatus.APPROVED,
-        ApplicationStatus.PAYMENT_SCHEDULED,
-        ApplicationStatus.PAID,
-    }
+    """RULE-019 input: another active application using the same receipt evidence."""
+
     receipts = [doc for doc in documents if doc.document_type == "receipt"]
-    hashes = [doc.sha256 for doc in receipts]
-    if hashes:
-        other = db.scalar(
-            select(Application.public_id)
-            .join(Subscription, Application.subscription_id == Subscription.id)
-            .where(
-                Application.id != application.id,
-                Application.status.in_(active_statuses),
-                Subscription.receipt_hash.in_(hashes),
-            )
-            .limit(1)
-        )
-        if other:
-            return other
-    other_receipts = db.execute(
+    if not receipts:
+        return None
+    others = db.execute(
         select(SourceDocument, Application.public_id)
         .join(Application, SourceDocument.application_id == Application.id)
         .where(
             Application.id != application.id,
-            Application.status.in_(active_statuses),
+            Application.status.in_(DUPLICATE_SCOPE_STATUSES),
             SourceDocument.document_type == "receipt",
             SourceDocument.active.is_(True),
         )
     ).all()
     for doc in receipts:
-        for other, public_id in other_receipts:
+        data = doc.ocr_data
+        for other, public_id in others:
+            other_data = other.ocr_data
             if doc.sha256 == other.sha256:
                 return public_id
-            reference = doc.ocr_data.get("receipt_reference")
             if (
-                reference
-                and reference == other.ocr_data.get("receipt_reference")
-                and doc.ocr_data.get("company_name") == other.ocr_data.get("company_name")
+                data.get("receipt_reference")
+                and data.get("receipt_reference") == other_data.get("receipt_reference")
+                and data.get("company_name") == other_data.get("company_name")
             ):
                 return public_id
+            features = ("company_name", "original_amount", "purchase_date")
+            if all(data.get(key) and data.get(key) == other_data.get(key) for key in features):
+                return public_id
     return None
+
+
+def _id_number_cross_check(application: Application, documents: list[SourceDocument]) -> dict:
+    registered = application.user.government_id_hash
+    read = {
+        doc.ocr_data.get("id_number_hash")
+        for doc in documents
+        if doc.document_type == "id_card" and doc.ocr_data.get("id_number_hash")
+    }
+    if registered and read:
+        result = "MATCH" if registered in read else "MISMATCH"
+    else:
+        result = "UNKNOWN"
+    return {
+        "check": "id_number_vs_profile",
+        "label": "申請登記身分證字號 vs 身分證 OCR 字號",
+        "a_source": "applicant_profile",
+        "a_value": application.user.government_id_masked,
+        "b_source": "ocr:id_card.id_number",
+        "b_value": next(
+            (
+                doc.ocr_data.get("id_number")
+                for doc in documents
+                if doc.document_type == "id_card" and doc.ocr_data.get("id_number")
+            ),
+            None,
+        ),
+        "result": result,
+    }
+
+
+def _engine_ocr_data(data: dict) -> dict:
+    return {key: value for key, value in data.items() if key != "id_number_hash"}
 
 
 def analyze_sources(db: Session, application: Application) -> dict:
     review = get_review(db, application)
     documents = documents_for(db, application)
-    # Identity is from the authenticated profile; birth date remains an explicit declaration.
+    # Identity is from the authenticated profile; everything else is the applicant's
+    # declaration and is cross-checked against the OCR evidence by the engine.
     applicant = {
         **review.applicant_data,
         "name": application.user.name,
@@ -255,11 +385,11 @@ def analyze_sources(db: Session, application: Application) -> dict:
     }
     grouped = {
         kind: [
-            {"ocr_status": doc.ocr_status, "ocr_data": doc.ocr_data}
+            {"ocr_status": doc.ocr_status, "ocr_data": _engine_ocr_data(doc.ocr_data)}
             for doc in documents
             if doc.document_type == kind
         ]
-        for kind in ("receipt", "id_card", "passbook")
+        for kind in OCR_TYPES
     }
     for kind in ("declaration", "cultural_proof", "payer_declaration"):
         grouped[f"{kind}_uploaded"] = any(doc.document_type == kind for doc in documents)
@@ -271,9 +401,7 @@ def analyze_sources(db: Session, application: Application) -> dict:
                 "documents": grouped,
                 "context": {
                     "applicationDate": (
-                        application.submitted_at.date()
-                        if application.submitted_at
-                        else date.today()
+                        application.submitted_at.date() if application.submitted_at else _today()
                     ).isoformat(),
                     "duplicateApplicationId": _duplicate_reference(db, application, documents),
                 },
@@ -287,6 +415,8 @@ def analyze_sources(db: Session, application: Application) -> dict:
             "FRAUD_RISK",
         } or not isinstance(evaluation.get("rules"), list):
             raise OcrUnavailable("OCR 分析回傳格式不正確，請重試或由承辦人確認。")
+        if isinstance(evaluation.get("cross_validation"), list):
+            evaluation["cross_validation"].append(_id_number_cross_check(application, documents))
     except OcrUnavailable as exc:
         evaluation = {
             "result": "REVIEW",
@@ -319,53 +449,29 @@ def analyze_sources(db: Session, application: Application) -> dict:
     return evaluation
 
 
-def apply_review_gate(db: Session, application: Application, result, *, refresh: bool):
-    review = db.get(SourceReview, application.id)
-    if review is None:
-        return result
-    evaluation = analyze_sources(db, application) if refresh else review.evaluation
-    # Receipt-only intake retains Copilot's existing policy. Actual evidence conflicts
-    # and failures still require review; OCR-specific missing ID/bank/declaration rules
-    # become applicable when the applicant starts the complete document workflow.
-    flags = [
-        rule
-        for rule in evaluation.get("rules", [])
-        if rule.get("id") in {"RULE-006", "RULE-007", "RULE-008", "RULE-019"}
-        and rule.get("result") in {"REJECT", "FRAUD_RISK"}
-    ]
-    if not (review.documents_required or flags):
-        return result
-    reason = (
-        "OCR 文件審核須由承辦人確認。"
-        if review.documents_required
-        else "OCR 來源分析有待確認項目。"
-    )
-    high = result.risk_level == RiskLevel.HIGH or any(
-        flag.get("result") == "FRAUD_RISK" for flag in flags
-    )
-    return result.model_copy(
-        update={
-            "eligible": False,
-            "provisionally_eligible": False,
-            "requires_manual_review": True,
-            "outcome": EligibilityOutcome.MANUAL_REVIEW,
-            "approved_amount_twd": result.approved_amount_twd * 0,
-            "risk_level": RiskLevel.HIGH if high else RiskLevel.MEDIUM,
-            "risk_reasons": [*result.risk_reasons, reason],
-        }
-    )
-
-
 def review_payload(db: Session, application: Application, *, citizen: bool) -> dict | None:
     review = db.get(SourceReview, application.id)
     if review is None:
         return None
     evaluation = review.evaluation
+    supplement = evaluation.get("supplement_center", {})
     if citizen:
         # Raw extracted identity, email and bank fields stay in the reviewer view.
+        subsidy = evaluation.get("subsidy") or {}
         evaluation = {
             key: evaluation.get(key)
             for key in ("result", "error", "policy_notice", "evaluated_at", "documents_required")
+        }
+        evaluation["subsidy"] = {
+            key: subsidy.get(key)
+            for key in (
+                "applicant_category",
+                "eligible_amount",
+                "subsidy_rate",
+                "subsidy_cap",
+                "subsidy_amount",
+                "unknown",
+            )
         }
         evaluation["supplement_center"] = {
             "items": [
@@ -374,9 +480,9 @@ def review_payload(db: Session, application: Application, *, citizen: bool) -> d
                     "missing_item": item["missing_item"],
                     "reason": f"請補充或確認：{item['missing_item']}",
                 }
-                for item in review.evaluation.get("supplement_center", {}).get("items", [])
+                for item in supplement.get("items", [])
             ],
-            "deadline": review.evaluation.get("supplement_center", {}).get("deadline"),
+            "deadline": supplement.get("deadline"),
         }
     documents = [
         {
@@ -388,7 +494,16 @@ def review_payload(db: Session, application: Application, *, citizen: bool) -> d
             "ocr_status": doc.ocr_status,
             "active": doc.active,
             "created_at": doc.created_at.isoformat(),
-            **({"ocr_data": doc.ocr_data, "sha256": doc.sha256} if not citizen else {}),
+            **(
+                {
+                    "ocr_data": {
+                        key: value for key, value in doc.ocr_data.items() if key != "id_number_hash"
+                    },
+                    "sha256": doc.sha256,
+                }
+                if not citizen
+                else {}
+            ),
         }
         for doc in documents_for(db, application, active_only=False)
     ]
@@ -396,10 +511,18 @@ def review_payload(db: Session, application: Application, *, citizen: bool) -> d
         "applicant_data": review.applicant_data,
         "evaluation": evaluation,
         "documents": documents,
+        "required_documents": document_status(db, application),
+        "missing_documents": missing_documents(db, application),
     }
 
 
-def request_source_supplements(db: Session, application: Application) -> None:
+def request_source_supplements(db: Session, application: Application) -> str | None:
+    """Reopen a MANUAL_REVIEW case for documents the rule engine says are missing.
+
+    Asking for documents is low risk and reversible, so it is the one action the engine
+    takes without a human. Returns the message sent to the applicant, if any.
+    """
+
     review = db.get(SourceReview, application.id)
     if (
         review is None
@@ -407,7 +530,7 @@ def request_source_supplements(db: Session, application: Application) -> None:
         or review.evaluation.get("result") != "NEED_SUPPLEMENT"
         or application.status != ApplicationStatus.MANUAL_REVIEW
     ):
-        return
+        return None
     from app.services.state_machine import transition_application
 
     items = review.evaluation.get("supplement_center", {}).get("items", [])
@@ -422,6 +545,7 @@ def request_source_supplements(db: Session, application: Application) -> None:
         application=application,
         details={"message": message, "source": "ocr", "reversible": True},
     )
+    return message
 
 
 def document_file(

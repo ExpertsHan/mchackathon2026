@@ -3,37 +3,41 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowRight, Check, ChevronRight, FileCheck2, GraduationCap, Package, Plus, ReceiptText, ShieldCheck, UserRound } from "lucide-react";
+import { ArrowRight, Ban, Check, ClipboardList, FileCheck2, GraduationCap, Pencil, Plus, RefreshCw, ShieldCheck, UserRound } from "lucide-react";
 import { PageContainer } from "@/components/app-shell";
 import { Alert, Button, Card, LoadingState, SectionHeading } from "@/components/ui";
 import { ProgressIndicator, CompactProgress } from "@/components/progress-indicator";
 import { ChatWindow } from "@/components/chat-window";
 import { ChatInput, QuickReplyButtons } from "@/components/chat-input";
-import { ReceiptUploader } from "@/components/receipt-uploader";
-import { ReceiptSummary } from "@/components/receipt-summary";
-import { SourceIntake } from "@/components/source-intake";
-import { SourceReviewPanel } from "@/components/source-review";
-import { EligibilityChecklist } from "@/components/eligibility-checklist";
-import { ApplicationSummary } from "@/components/application-summary";
-import { PolicyCitationList } from "@/components/policy-citation";
-import { PRODUCTS } from "@/lib/constants";
+import { ApplicantForm } from "@/components/applicant-form";
+import { DocumentUploader } from "@/components/document-uploader";
+import { CitizenReviewSummary } from "@/components/source-review";
 import { api } from "@/lib/api";
-import type { AgentStreamEvent, Application, ChatMessageData, EligibilityResult, ProductOption, SafetyProgress, Subscription } from "@/lib/types";
-import { cn, getErrorMessage } from "@/lib/utils";
+import { CANCELLABLE_STATUSES, OPEN_STATUSES, missingApplicantFields } from "@/lib/intake";
+import type { AgentStreamEvent, Application, ChatMessageData, SafetyProgress, SourceReview } from "@/lib/types";
+import { getErrorMessage } from "@/lib/utils";
 import { useSession } from "@/contexts/session-context";
 
-const initialQuickReplies = ["Is ChatGPT Plus eligible?", "What evidence do I need?", "How is the subsidy calculated?"];
+const initialQuickReplies = ["Is ChatGPT eligible?", "Which documents do I need?", "How is the subsidy calculated?"];
+const PENDING_LINE_CODE = "ai-subsidy-pending-line-code";
 
 function newMessage(role: "assistant" | "user", content: string, extras: Partial<ChatMessageData> = {}): ChatMessageData {
   return { id: `${role}-${Date.now()}-${Math.random().toString(36).slice(2)}`, role, content, ...extras };
 }
 
-function isEligibilityResult(value: Application["eligibility_result"]): value is EligibilityResult {
-  return Boolean(value && typeof value === "object" && "checks" in value);
-}
-
-function hasUploadedReceipt(subscription?: Subscription | null) {
-  return Boolean(subscription?.receipt_uploaded || subscription?.receipt_hash);
+function StepCard({ number, title, done, children, action }: { number: number; title: string; done: boolean; children: React.ReactNode; action?: React.ReactNode }) {
+  return (
+    <Card className="p-5 sm:p-6">
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+        <div className="flex items-start gap-3">
+          <span className={`grid size-9 shrink-0 place-items-center rounded-lg text-sm font-extrabold ${done ? "bg-emerald-600 text-white" : "bg-teal-50 text-teal-700"}`}>{done ? <Check className="size-5" strokeWidth={3} /> : number}</span>
+          <div><p className="text-[10px] font-extrabold uppercase tracking-[.14em] text-teal-700">Step {number}</p><h2 className="mt-0.5 text-lg font-bold text-navy-900">{title}</h2></div>
+        </div>
+        {action}
+      </div>
+      {children}
+    </Card>
+  );
 }
 
 export default function ApplyPage() {
@@ -42,11 +46,9 @@ export default function ApplyPage() {
   const started = useRef(false);
   const safetyReminderRecorded = useRef(false);
   const [application, setApplication] = useState<Application | null>(null);
-  const [subscription, setSubscription] = useState<Subscription | null>(null);
-  const [eligibility, setEligibility] = useState<EligibilityResult | null>(null);
+  const [review, setReview] = useState<SourceReview | null>(null);
   const [safetyProgress, setSafetyProgress] = useState<SafetyProgress | null>(null);
-  const [receiptConfirmed, setReceiptConfirmed] = useState(false);
-  const [evidenceUpdated, setEvidenceUpdated] = useState(false);
+  const [editingDetails, setEditingDetails] = useState(false);
   const [messages, setMessages] = useState<ChatMessageData[]>([]);
   const [quickReplies, setQuickReplies] = useState(initialQuickReplies);
   const [creating, setCreating] = useState(true);
@@ -54,104 +56,85 @@ export default function ApplyPage() {
   const [assistantAwaiting, setAssistantAwaiting] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [lineNotice, setLineNotice] = useState<string | null>(null);
 
   const hydrateApplication = useCallback((data: Application) => {
     setApplication(data);
-    setSubscription(data.subscription ?? null);
-    setEligibility(isEligibilityResult(data.eligibility_result) ? data.eligibility_result : null);
+    setReview(data.source_review ?? null);
     setSafetyProgress(data.safety_progress ?? null);
-    setReceiptConfirmed(hasUploadedReceipt(data.subscription) || isEligibilityResult(data.eligibility_result));
-    setEvidenceUpdated(data.status !== "REQUESTED_INFORMATION");
   }, []);
+
+  const refresh = useCallback(async (publicId: string) => { hydrateApplication(await api.getApplication(publicId)); }, [hydrateApplication]);
 
   const initialize = useCallback(async () => {
     if (!user) return;
     setCreating(true); setError(null);
     try {
-      let data: Application;
+      let data: Application | null = null;
       if (activeApplicationId) {
-        try { data = await api.getApplication(activeApplicationId); }
-        catch { data = await api.createApplication(user.id); setActiveApplicationId(data.public_id); }
-      } else {
-        data = await api.createApplication(user.id);
-        setActiveApplicationId(data.public_id);
+        try { data = await api.getApplication(activeApplicationId); } catch { data = null; }
       }
+      if (!data || !OPEN_STATUSES.includes(data.status)) {
+        // One application at a time: reuse the open one if the server already has it.
+        const existing = (await api.getUserApplications(user.id)).find((item) => OPEN_STATUSES.includes(item.status));
+        if (existing) data = await api.getApplication(existing.public_id);
+        else if (!data) data = await api.createApplication(user.id);
+      }
+      setActiveApplicationId(data.public_id);
       hydrateApplication(data);
       if (!data.safety_progress) setSafetyProgress(await api.getSafetyProgress(user.id));
+      const greeting = `Hi ${user.name.split(" ")[0]}. I can help you apply for the Hsinchu AI youth subsidy.\n\nFill in your details, upload the required documents, and I can answer policy questions along the way.`;
       try {
         const history = await api.getAgentHistory(data.public_id);
         setMessages(history.messages.length
           ? history.messages.map((item, index) => newMessage(item.role, item.content, { id: `history-${index}-${data.public_id}` }))
-          : [newMessage("assistant", `Hi ${user.name.split(" ")[0]}. I can help you apply for the fictional AI Tool Subsidy.\n\nWhich AI service did you subscribe to?`)]);
-      } catch {
-        setMessages([newMessage("assistant", `Hi ${user.name.split(" ")[0]}. I can help you apply for the fictional AI Tool Subsidy.\n\nWhich AI service did you subscribe to?`)]);
-      }
+          : [newMessage("assistant", greeting)]);
+      } catch { setMessages([newMessage("assistant", greeting)]); }
     } catch (err) { setError(getErrorMessage(err)); }
     finally { setCreating(false); }
   }, [user, activeApplicationId, setActiveApplicationId, hydrateApplication]);
 
   useEffect(() => {
     if (!hydrated) return;
+    // A LINE deep link carries a one-time code. Keep it across the login redirect.
+    const code = new URLSearchParams(window.location.search).get("line_code");
+    if (code) { try { window.sessionStorage.setItem(PENDING_LINE_CODE, code); } catch { /* storage blocked: link again from LINE */ } }
     if (!user) { router.replace("/login"); return; }
     if (!started.current) { started.current = true; void initialize(); }
   }, [hydrated, user, router, initialize]);
 
-  const chooseProduct = useCallback(async (product: ProductOption) => {
-    if (!application || actionLoading || !user) return;
-    setActionLoading("product"); setError(null);
-    try {
-      const result = await api.setSubscription(application.public_id, product.provider, product.product);
-      const nextSubscription = ("public_id" in result ? result.subscription : result) as Subscription;
-      setSubscription(nextSubscription);
-      setReceiptConfirmed(false); setEligibility(null);
-      setMessages((current) => [...current, newMessage("user", product.product)]);
-      setAssistantLoading(true); setAssistantAwaiting(true);
-      try {
-        const response = await api.chat({ user_id: user.id, application_id: application.public_id, message: `Is ${product.product} eligible under the current program?` });
-        setMessages((current) => [...current, newMessage("assistant", response.message, { citations: response.citations })]);
-        setQuickReplies(["What should my receipt show?", "How much could I receive?"]);
-      } catch (err) {
-        setMessages((current) => [...current, newMessage("assistant", `I saved your selection, but policy assistance is temporarily unavailable. ${getErrorMessage(err)} You can continue by uploading your receipt.`, { tone: "warning" })]);
-      } finally { setAssistantLoading(false); setAssistantAwaiting(false); }
-    } catch (err) { setError(getErrorMessage(err)); }
-    finally { setActionLoading(null); }
-  }, [actionLoading, application, user]);
-
-  const autoSelectedProduct = useRef(false);
-
   useEffect(() => {
-    if (autoSelectedProduct.current) return;
-    if (!application || subscription?.product || actionLoading) return;
-    const requested = new URLSearchParams(window.location.search).get("product");
-    if (!requested) return;
-    const match = PRODUCTS.find((product) => product.product.toLowerCase() === requested.toLowerCase());
-    if (!match) return;
-    autoSelectedProduct.current = true;
-    void chooseProduct(match);
-  }, [application, subscription?.product, actionLoading, chooseProduct]);
+    if (!user) return;
+    let code: string | null = null;
+    try { code = window.sessionStorage.getItem(PENDING_LINE_CODE); } catch { return; }
+    if (!code) return;
+    try { window.sessionStorage.removeItem(PENDING_LINE_CODE); } catch { /* ignore */ }
+    api.bindLine(code).then((result) => setLineNotice(result.message)).catch((err) => setLineNotice(getErrorMessage(err)));
+  }, [user]);
 
   useEffect(() => {
     if (!user || !application || safetyReminderRecorded.current) return;
     safetyReminderRecorded.current = true;
-    void api.recordSafetyEngagement({
-      user_id: user.id,
-      application_id: application.public_id,
-      event: "CHAT_REMINDER_VIEWED",
-    }).catch(() => undefined);
+    void api.recordSafetyEngagement({ user_id: user.id, application_id: application.public_id, event: "CHAT_REMINDER_VIEWED" }).catch(() => undefined);
   }, [user, application]);
 
-  const completeSteps = useMemo(() => {
-    const steps: number[] = [];
-    if (user?.identity_verified) steps.push(1);
-    if (subscription?.product) steps.push(2);
-    if (hasUploadedReceipt(subscription)) steps.push(3);
-    if (eligibility) steps.push(4);
-    if (application && !["DRAFT", "REQUESTED_INFORMATION"].includes(application.status)) steps.push(5);
-    return steps;
-  }, [user, subscription, eligibility, application]);
-
+  const applicantMissing = useMemo(() => missingApplicantFields(review?.applicant_data), [review]);
+  const detailsDone = Boolean(review?.evaluation.documents_required) && applicantMissing.length === 0;
+  const documentsDone = Boolean(review) && review!.missing_documents.length === 0 && review!.required_documents.length > 0;
+  const checked = Boolean(review?.evaluation.result) && detailsDone && documentsDone;
+  const editable = application ? ["DRAFT", "REQUESTED_INFORMATION"].includes(application.status) : false;
+  const submitted = application ? !editable : false;
   const needsMoreInformation = application?.status === "REQUESTED_INFORMATION";
-  const currentStep = needsMoreInformation && !evidenceUpdated ? 3 : !subscription?.product ? 2 : !hasUploadedReceipt(subscription) ? 3 : !eligibility ? 4 : 5;
+
+  const completeSteps = useMemo(() => {
+    const steps = [1];
+    if (detailsDone) steps.push(2);
+    if (documentsDone) steps.push(3);
+    if (checked) steps.push(4);
+    if (submitted) steps.push(5);
+    return steps;
+  }, [detailsDone, documentsDone, checked, submitted]);
+  const currentStep = !detailsDone ? 2 : !documentsDone ? 3 : !checked ? 4 : 5;
 
   async function sendChat(message: string) {
     if (!user || assistantLoading) return;
@@ -216,27 +199,16 @@ export default function ApplyPage() {
     } finally { setAssistantLoading(false); setAssistantAwaiting(false); }
   }
 
-  async function uploadReceipt(file: File) {
-    if (!application) return;
-    const result = await api.uploadReceipt(application.public_id, file);
-    const nextSubscription = ("public_id" in result ? result.subscription : result) as Subscription;
-    setSubscription(nextSubscription); setReceiptConfirmed(false); setEligibility(null); setEvidenceUpdated(true);
-    setMessages((current) => [...current, newMessage("assistant", "I extracted the receipt fields as untrusted evidence. Please check them before I ask the deterministic rule engine to evaluate your application.", { tone: "success" })]);
+  async function onReview(next: SourceReview) {
+    setReview(next);
+    if (application) await refresh(application.public_id).catch(() => undefined);
   }
 
-  async function confirmReceipt() {
+  async function recheck() {
     if (!application) return;
-    setReceiptConfirmed(true); setEvidenceUpdated(true); setActionLoading("eligibility"); setError(null);
-    try {
-      const result = await api.checkEligibility(application.public_id);
-      setEligibility(result);
-      const content = result.requires_manual_review
-        ? "The rule engine found an issue that needs human review. You can still submit the application for that review."
-        : result.eligible || result.provisional
-          ? "The deterministic rule engine says the application is ready for final review and submission. Optional AI safety learning is available separately."
-          : "The rule engine found one or more requirements that are not met. Review each check below for a clear explanation.";
-      setMessages((current) => [...current, newMessage("assistant", content, { tone: result.requires_manual_review ? "warning" : result.eligible || result.provisional ? "success" : "warning" })]);
-    } catch (err) { setError(getErrorMessage(err)); setReceiptConfirmed(false); }
+    setActionLoading("recheck"); setError(null);
+    try { setReview(await api.analyzeSources(application.public_id)); }
+    catch (err) { setError(getErrorMessage(err)); }
     finally { setActionLoading(null); }
   }
 
@@ -244,104 +216,114 @@ export default function ApplyPage() {
     if (!application) return;
     setActionLoading("submit"); setError(null);
     try {
-      const finalEligibility = await api.checkEligibility(application.public_id);
-      setEligibility(finalEligibility);
-      const submitted = await api.submitApplication(application.public_id);
-      hydrateApplication(submitted);
-      router.push(`/application/${submitted.public_id}?submitted=1`);
+      const result = await api.submitApplication(application.public_id);
+      hydrateApplication(result);
+      router.push(`/application/${result.public_id}?submitted=1`);
     } catch (err) { setError(getErrorMessage(err)); }
     finally { setActionLoading(null); }
   }
 
-  async function startAnother() {
-    if (!user) return;
-    setCreating(true); setError(null);
+  async function cancelApplication() {
+    if (!application || !window.confirm("確定要取消這筆申請嗎？取消後可重新開始新的申請。")) return;
+    setActionLoading("cancel"); setError(null);
     try {
-      const next = await api.createApplication(user.id);
-      setActiveApplicationId(next.public_id); setApplication(next); setSubscription(null); setEligibility(null); setReceiptConfirmed(false); setEvidenceUpdated(true);
-      setMessages([newMessage("assistant", `New draft created. Which AI service did you subscribe to, ${user.name.split(" ")[0]}?`)]);
+      await api.cancelApplication(application.public_id);
+      setActiveApplicationId(null);
+      started.current = false;
+      await initialize();
     } catch (err) { setError(getErrorMessage(err)); }
-    finally { setCreating(false); }
+    finally { setActionLoading(null); }
   }
 
   if (!hydrated || creating) return <LoadingState label="Preparing your secure demo application…" className="min-h-[65vh]" />;
   if (!user) return null;
 
-  const finalized = application && !["DRAFT", "REQUESTED_INFORMATION"].includes(application.status);
   return (
     <PageContainer>
-      <SectionHeading eyebrow="Citizen application" title={`Welcome, ${user.name.split(" ")[0]}`} description="Follow the structured steps or ask the assistant a policy question at any time." action={application ? <span className="rounded-lg border border-line bg-white px-3 py-2 font-mono text-xs font-bold text-navy-700">{application.public_id}</span> : undefined} />
+      <SectionHeading eyebrow="Citizen application" title={`Welcome, ${user.name.split(" ")[0]}`} description="Follow the steps below or ask the assistant a policy question at any time." action={application ? <span className="rounded-lg border border-line bg-white px-3 py-2 font-mono text-xs font-bold text-navy-700">{application.public_id}</span> : undefined} />
       <div className="mt-6"><ProgressIndicator currentStep={currentStep} completedSteps={completeSteps} /></div>
       {error ? <Alert className="mt-5" tone="error" title="Action could not be completed">{error}</Alert> : null}
+      {lineNotice ? <Alert className="mt-5" tone="info" title="LINE">{lineNotice}</Alert> : null}
       {needsMoreInformation ? (
-        <Alert className="mt-5" tone="warning" title="A reviewer requested more information">
-          <p>{application?.requested_information ?? "Please review or replace your subscription evidence, run the eligibility check again, and resubmit."}</p>
-          <p className="mt-2 text-xs">This application is reopened for evidence updates. Its prior audit history remains unchanged.</p>
+        <Alert className="mt-5" tone="warning" title="需要補件">
+          <p>{application?.requested_information ?? "請補充或更正下列資料後重新送出。"}</p>
+          <p className="mt-2 text-xs">補件後系統會重新辨識並比對；先前的審核紀錄保持不變。</p>
         </Alert>
       ) : null}
-      {finalized ? (
-        <Alert className="mt-5" tone="info" title={`This application is already ${application.status.toLowerCase().replaceAll("_", " ")}.`}>
-          <div className="mt-2 flex flex-wrap gap-2"><Button asChild size="sm"><Link href={`/application/${application.public_id}`}>View application <ArrowRight className="size-4" /></Link></Button><Button size="sm" variant="outline" onClick={startAnother}><Plus className="size-4" /> Start another draft</Button></div>
+      {submitted && application ? (
+        <Alert className="mt-5" tone="info" title={`This application is ${application.status.toLowerCase().replaceAll("_", " ")}.`}>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <Button asChild size="sm"><Link href={`/application/${application.public_id}`}>View application <ArrowRight className="size-4" /></Link></Button>
+            {!OPEN_STATUSES.includes(application.status) ? <Button size="sm" variant="outline" onClick={() => { setActiveApplicationId(null); started.current = false; void initialize(); }}><Plus className="size-4" /> Start a new application</Button> : null}
+          </div>
         </Alert>
       ) : null}
 
-      <div className="mt-6 grid items-start gap-6 lg:grid-cols-[minmax(0,1.25fr)_minmax(350px,.75fr)]">
-        <ChatWindow messages={messages} loading={assistantLoading && assistantAwaiting}>
-          <QuickReplyButtons options={quickReplies} onSelect={(value) => void sendChat(value)} disabled={assistantLoading} />
-          <ChatInput onSend={sendChat} disabled={assistantLoading} />
-          <p className="mt-2 text-center text-[10px] text-slate-500">AI answers may be wrong. Verify important policy claims using the displayed sources.</p>
-        </ChatWindow>
+      <div className="mt-6 grid items-start gap-6 lg:grid-cols-[minmax(0,1.25fr)_minmax(340px,.75fr)]">
+        <div className="space-y-5">
+          {!application ? <Card><LoadingState label="Creating application…" /></Card> : (
+            <>
+              <StepCard number={2} title="申請人資料" done={detailsDone} action={detailsDone && editable && !editingDetails ? <Button size="sm" variant="outline" onClick={() => setEditingDetails(true)}><Pencil className="size-4" /> 修改</Button> : undefined}>
+                {detailsDone && !editingDetails ? (
+                  <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
+                    <div><dt className="text-xs text-slate-500">軟體</dt><dd className="font-semibold text-navy-900">{review?.applicant_data.applied_tool_name}（{review?.applicant_data.software_company}）</dd></div>
+                    <div><dt className="text-xs text-slate-500">購買日期／繳費制度</dt><dd className="font-semibold text-navy-900">{review?.applicant_data.purchase_date} · {review?.applicant_data.payment_type === "annual" ? "年費制" : "月費制"}</dd></div>
+                    <div><dt className="text-xs text-slate-500">換算新臺幣</dt><dd className="font-semibold text-navy-900">NT${review?.applicant_data.declared_amount?.toLocaleString()}</dd></div>
+                    <div><dt className="text-xs text-slate-500">申請身分</dt><dd className="font-semibold text-navy-900">{{ normal: "一般青年", special: "特定對象", language: "文化語言保存者" }[review?.applicant_data.applicant_type ?? "normal"]}</dd></div>
+                  </dl>
+                ) : (
+                  <ApplicantForm key={editingDetails ? "edit" : "new"} publicId={application.public_id} initial={review?.applicant_data} disabled={!editable} onSaved={async (next) => { setEditingDetails(false); await onReview(next); }} />
+                )}
+              </StepCard>
 
-        <aside className="space-y-5 lg:sticky lg:top-24" aria-label="Structured application steps">
+              <StepCard number={3} title="上傳文件" done={documentsDone}>
+                {detailsDone && review ? (
+                  <>
+                    <p className="mb-4 text-xs leading-5 text-slate-600">上傳後系統會自動辨識並與您填寫的資料交叉比對。文件僅供本案審核使用。</p>
+                    <DocumentUploader publicId={application.public_id} review={review} disabled={!editable} onUpdated={onReview} />
+                  </>
+                ) : <p className="text-sm text-slate-500">請先儲存申請人資料，系統會依申請身分與付款方式列出需要的文件。</p>}
+              </StepCard>
+
+              <StepCard number={4} title="規則檢查結果" done={checked} action={detailsDone && editable ? <Button size="sm" variant="outline" loading={actionLoading === "recheck"} onClick={recheck}><RefreshCw className="size-4" /> 重新檢查</Button> : undefined}>
+                <CitizenReviewSummary review={review} />
+              </StepCard>
+
+              {editable ? (
+                <StepCard number={5} title="送出申請" done={false}>
+                  <div className="flex items-start gap-3 text-xs leading-5 text-slate-600"><ShieldCheck className="mt-0.5 size-4 shrink-0 text-teal-700" /><p>送出後所有案件都會交由承辦人員複核；AI 與規則引擎不會自動核准，也無法授權撥款。若文件不齊全，系統會通知您補件。</p></div>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <Button size="lg" loading={actionLoading === "submit"} disabled={!detailsDone || !documentsDone} onClick={submitApplication}><FileCheck2 className="size-5" /> {needsMoreInformation ? "補件完成，重新送出" : "確認送出申請"}</Button>
+                    {CANCELLABLE_STATUSES.includes(application.status) ? <Button size="lg" variant="outline" loading={actionLoading === "cancel"} onClick={cancelApplication}><Ban className="size-5" /> 取消這筆申請</Button> : null}
+                  </div>
+                  {!detailsDone || !documentsDone ? <p className="mt-3 text-xs text-slate-500">請先完成{!detailsDone ? "申請人資料" : "文件上傳"}才能送出。</p> : null}
+                </StepCard>
+              ) : null}
+            </>
+          )}
+        </div>
+
+        <aside className="space-y-5 lg:sticky lg:top-24" aria-label="Assistant and progress">
           <Card className="p-4 shadow-none">
-            <div className="mb-4 flex items-center gap-3 border-b border-line pb-3"><span className="grid size-9 place-items-center rounded-lg bg-navy-50 text-navy-700"><UserRound className="size-4" /></span><div><p className="text-sm font-bold text-navy-900">{user.name}</p><p className="text-[11px] text-slate-500">{user.government_id_masked} · Age {user.age}</p></div><span className="ml-auto inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700"><Check className="size-3.5" /> Verified</span></div>
+            <div className="mb-4 flex items-center gap-3 border-b border-line pb-3"><span className="grid size-9 place-items-center rounded-lg bg-navy-50 text-navy-700"><UserRound className="size-4" /></span><div><p className="text-sm font-bold text-navy-900">{user.name}</p><p className="text-[11px] text-slate-500">{user.government_id_masked}</p></div><span className="ml-auto inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700"><Check className="size-3.5" /> Verified</span></div>
             <CompactProgress labels={[
-              { label: "Identity", complete: Boolean(user.identity_verified) },
-              { label: "Subscription", complete: Boolean(subscription?.product) },
-              { label: "Receipt", complete: hasUploadedReceipt(subscription) },
-              { label: "Eligibility", complete: Boolean(eligibility) },
+              { label: "申請人資料", complete: detailsDone },
+              { label: "文件上傳", complete: documentsDone },
+              { label: "規則檢查", complete: checked },
+              { label: "已送出", complete: submitted },
             ]} />
             <div className="mt-4 border-t border-line pt-4">
               <div className="flex items-start gap-3"><GraduationCap className="mt-0.5 size-4 shrink-0 text-violet-700" /><div className="min-w-0"><p className="text-xs font-bold text-navy-900">Optional AI safety learning</p><p className="mt-1 text-[11px] leading-5 text-slate-500">{safetyProgress?.completed_count ?? 0}/{safetyProgress?.required_count ?? 4} reviewed · never affects your application.</p><Link href="/safety" className="mt-1 inline-flex text-[11px] font-bold text-violet-700 hover:underline">Open lessons</Link></div></div>
+              <div className="mt-3 flex items-start gap-3"><ClipboardList className="mt-0.5 size-4 shrink-0 text-teal-700" /><p className="text-[11px] leading-5 text-slate-500">在 LINE 輸入「申請」取得連結，可綁定 LINE 接收補件與撥款通知。</p></div>
             </div>
           </Card>
-
-          {!application ? <Card><LoadingState label="Creating application…" /></Card> : finalized ? (
-            <Card className="p-5"><h2 className="text-lg font-bold text-navy-900">Application submitted</h2><p className="mt-2 text-sm leading-6 text-slate-600">Continue to the tracking page for verification, review, and payment updates.</p><Button asChild className="mt-5 w-full"><Link href={`/application/${application.public_id}`}>Track application <ArrowRight className="size-4" /></Link></Button></Card>
-          ) : !subscription?.product ? (
-            <Card className="p-5">
-              <div className="flex items-start gap-3"><span className="grid size-9 shrink-0 place-items-center rounded-lg bg-teal-50 text-teal-700"><Package className="size-5" /></span><div><p className="text-[10px] font-extrabold uppercase tracking-[.14em] text-teal-700">Step 2</p><h2 className="mt-1 text-lg font-bold text-navy-900">Choose your AI service</h2></div></div>
-              <div className="mt-4 space-y-2.5">
-                {PRODUCTS.map((product) => <button key={product.product} type="button" onClick={() => chooseProduct(product)} disabled={actionLoading !== null} className="group flex w-full items-center gap-3 rounded-xl border border-line bg-white p-3.5 text-left hover:border-navy-300 hover:bg-navy-50 disabled:opacity-50"><span className={cn("grid size-9 shrink-0 place-items-center rounded-lg text-xs font-extrabold", product.eligible ? "bg-navy-100 text-navy-800" : "bg-slate-100 text-slate-600")}>{product.product.charAt(0)}</span><span className="min-w-0 flex-1"><span className="block text-sm font-bold text-navy-900">{product.product}</span><span className="mt-0.5 block truncate text-[10px] text-slate-500">{product.description}</span></span>{product.eligible ? <span className="rounded-full bg-emerald-50 px-2 py-1 text-[9px] font-extrabold uppercase text-emerald-700">Listed</span> : null}<ChevronRight className="size-4 text-slate-400" /></button>)}
-              </div>
-            </Card>
-          ) : !hasUploadedReceipt(subscription) ? (
-            <Card className="p-5">
-              <div className="mb-4 flex items-start justify-between gap-3"><div className="flex items-start gap-3"><span className="grid size-9 shrink-0 place-items-center rounded-lg bg-teal-50 text-teal-700"><ReceiptText className="size-5" /></span><div><p className="text-[10px] font-extrabold uppercase tracking-[.14em] text-teal-700">Step 3</p><h2 className="mt-1 text-lg font-bold text-navy-900">Upload your receipt</h2><p className="mt-1 text-xs text-slate-500">Selected: {subscription.product}</p></div></div><button type="button" className="text-xs font-bold text-navy-700 underline-offset-2 hover:underline" onClick={() => setSubscription(null)}>Change</button></div>
-              <ReceiptUploader onUpload={uploadReceipt} />
-            </Card>
-          ) : needsMoreInformation && subscription && hasUploadedReceipt(subscription) ? (
-            <div className="space-y-4">
-              <Card className="p-5">
-                <div className="flex items-start gap-3"><span className="grid size-10 shrink-0 place-items-center rounded-lg bg-amber-50 text-amber-700"><ReceiptText className="size-5" /></span><div><p className="text-[10px] font-extrabold uppercase tracking-[.14em] text-amber-700">Reviewer follow-up</p><h2 className="mt-1 text-lg font-bold text-navy-900">Review or replace your evidence</h2><p className="mt-1 text-xs leading-5 text-slate-600">Upload a corrected receipt if needed. A replacement is re-extracted as data and cannot trigger approval or payment.</p></div></div>
-                <div className="mt-4"><ReceiptSummary subscription={subscription} /></div>
-                <div className="mt-5 border-t border-line pt-5"><h3 className="mb-3 text-sm font-bold text-navy-900">Replace supporting receipt</h3><ReceiptUploader onUpload={uploadReceipt} /></div>
-                <Button className="mt-4 w-full" variant="outline" loading={actionLoading === "eligibility"} onClick={confirmReceipt}>{evidenceUpdated ? "Check updated evidence" : "Re-check current evidence"} <ArrowRight className="size-4" /></Button>
-              </Card>
-              {evidenceUpdated && eligibility ? <EligibilityChecklist result={eligibility} title="Updated eligibility check" /> : null}
-              {evidenceUpdated && eligibility ? <Card className="p-5"><div className="flex items-start gap-3 text-xs leading-5 text-slate-600"><ShieldCheck className="mt-0.5 size-4 shrink-0 text-teal-700" /><p>Resubmission runs the final server-side policy check. The reviewer request and your updated evidence remain in the audit trail.</p></div><Button className="mt-4 w-full" size="lg" loading={actionLoading === "submit"} onClick={submitApplication}><FileCheck2 className="size-5" /> Resubmit application</Button></Card> : null}
-            </div>
-          ) : !receiptConfirmed && !eligibility ? (
-            <div><ReceiptSummary subscription={subscription} confirmed={receiptConfirmed} onConfirm={confirmReceipt} />{actionLoading === "eligibility" ? <LoadingState label="Running deterministic checks…" className="min-h-24" /> : null}</div>
-          ) : subscription && eligibility ? (
-            <div className="space-y-4"><ApplicationSummary compact user={user} subscription={subscription} eligibility={eligibility} safetyProgress={safetyProgress} application={application} />{application.policy_citations?.length ? <Card className="p-4"><h3 className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-500">Policy evidence</h3><PolicyCitationList citations={application.policy_citations} /></Card> : null}<Card className="p-5"><div className="flex items-start gap-3 text-xs leading-5 text-slate-600"><ShieldCheck className="mt-0.5 size-4 shrink-0 text-teal-700" /><p>Submitting runs the final rule check on the server. The AI cannot approve this application or authorize payment.</p></div><Button className="mt-4 w-full" size="lg" loading={actionLoading === "submit"} onClick={submitApplication}><FileCheck2 className="size-5" /> Submit application</Button></Card></div>
-          ) : <Card><LoadingState label="Checking application progress…" /></Card>}
+          <ChatWindow messages={messages} loading={assistantLoading && assistantAwaiting}>
+            <QuickReplyButtons options={quickReplies} onSelect={(value) => void sendChat(value)} disabled={assistantLoading} />
+            <ChatInput onSend={sendChat} disabled={assistantLoading} />
+            <p className="mt-2 text-center text-[10px] text-slate-500">AI answers may be wrong. Verify important policy claims using the displayed sources.</p>
+          </ChatWindow>
         </aside>
       </div>
-      {application && !finalized && hasUploadedReceipt(subscription) ? <section className="mt-6 space-y-4" aria-label="Supporting documents and OCR review">
-        <SourceIntake publicId={application.public_id} review={application.source_review} onUpdated={async () => hydrateApplication(await api.getApplication(application.public_id))} />
-        <SourceReviewPanel publicId={application.public_id} review={application.source_review} />
-      </section> : null}
     </PageContainer>
   );
 }

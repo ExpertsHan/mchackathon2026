@@ -9,6 +9,7 @@ import tempfile
 from pathlib import Path
 
 from app.core.config import settings
+from app.core.identity import hash_government_id, mask_government_id
 
 TEXT_FIELDS = {
     "document_type",
@@ -91,6 +92,16 @@ def sanitize_ocr_data(data: object) -> dict:
     return clean
 
 
+def protect_identifiers(data: dict) -> dict:
+    """Replace a read national ID by its mask plus a keyed hash before anything is stored."""
+
+    number = data.get("id_number")
+    if isinstance(number, str) and number.strip():
+        data["id_number_hash"] = hash_government_id(number)
+        data["id_number"] = mask_government_id(number)
+    return data
+
+
 def extract_document(data: bytes, suffix: str, document_type: str) -> dict:
     if document_type not in {"receipt", "id_card", "passbook"}:
         return {"status": "uploaded", "data": {}}
@@ -118,4 +129,4 @@ def extract_document(data: bytes, suffix: str, document_type: str) -> dict:
     clean = sanitize_ocr_data(result.get("data"))
     if not any(key != "_confidence" for key in clean):
         return {"status": "failed", "data": {"_error": "無法讀取文件欄位，請提供清晰文件。"}}
-    return {"status": "done", "data": clean}
+    return {"status": "done", "data": protect_identifiers(clean)}

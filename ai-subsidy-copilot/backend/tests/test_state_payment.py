@@ -57,3 +57,22 @@ def test_payment_uses_server_approved_amount(db: Session) -> None:
     db.flush()
     payment = schedule_payment(db, approved)
     assert payment.amount_twd == Decimal("321")
+
+
+def test_rule_engine_stage_cannot_approve_or_reject_directly() -> None:
+    from app.services.state_machine import can_transition
+
+    assert not can_transition(ApplicationStatus.VERIFYING, ApplicationStatus.APPROVED)
+    assert not can_transition(ApplicationStatus.VERIFYING, ApplicationStatus.REJECTED)
+    assert not can_transition(ApplicationStatus.SUBMITTED, ApplicationStatus.APPROVED)
+    assert can_transition(ApplicationStatus.MANUAL_REVIEW, ApplicationStatus.APPROVED)
+
+
+@pytest.mark.parametrize(
+    "status",
+    [ApplicationStatus.PAID, ApplicationStatus.REJECTED, ApplicationStatus.CANCELLED],
+)
+def test_finished_applications_have_no_further_transitions(status: ApplicationStatus) -> None:
+    item = application(status)
+    with pytest.raises(InvalidStateTransition):
+        transition_application(item, ApplicationStatus.CANCELLED)

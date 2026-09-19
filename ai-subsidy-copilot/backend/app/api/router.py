@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import uuid
 
-from fastapi import APIRouter, Depends, File, Query, UploadFile
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -29,9 +29,9 @@ from app.schemas import (
     DemoLoginRequest,
     PaymentRead,
     ReviewerActionRequest,
+    ReviewerIdentityRequest,
     SafetyAnswerRequest,
     SafetyAnswerResult,
-    SubscriptionInput,
     UserRead,
 )
 from app.schemas.api import (
@@ -41,38 +41,39 @@ from app.schemas.api import (
     AgentChatResponse,
     AgentHistoryResponse,
     ApplicationDetail,
+    ApplicationStatusRead,
     CitizenApplicationDetail,
-    CitizenSubscriptionRead,
     DemoLoginResponse,
     MessageResponse,
-    ReceiptUploadResponse,
+    NotifyRequest,
+    PaymentStatusRead,
     SafetyEngagementEventRequest,
     SafetyModuleRead,
     SafetyProgressResponse,
     TimelineResponse,
 )
-from app.schemas.domain import EligibilityEvaluation
 from app.schemas.policy import PolicyAnswer, PolicyQuery
 from app.services.applications import (
     approve_application,
+    cancel_application,
     create_application,
+    flag_for_further_check,
     get_application_by_public_id,
     reject_application,
     request_more_information,
-    set_subscription,
+    send_reviewer_message,
     submit_application,
 )
 from app.services.audit import record_audit
 from app.services.demo import reset_demo_data
-from app.services.eligibility import evaluate_application
-from app.services.evidence import attach_receipt
+from app.services.line_notify import notify_status
 from app.services.payments import process_payment
 from app.services.queries import (
     admin_applications,
     admin_stats,
     application_detail,
+    application_status,
     citizen_application_detail,
-    citizen_subscription,
     timeline,
 )
 from app.services.safety import (
@@ -81,6 +82,7 @@ from app.services.safety import (
     list_modules,
     record_engagement,
 )
+from app.services.source_review import documents_for, missing_documents
 from app.services.verification import run_verification
 
 router = APIRouter()
@@ -173,112 +175,6 @@ def user_applications(
 
 
 @router.post(
-    "/api/applications/{public_id}/subscription",
-    response_model=CitizenSubscriptionRead,
-    tags=["applications"],
-)
-def select_subscription(
-    public_id: str,
-    payload: SubscriptionInput,
-    current_user: User = Depends(get_current_demo_user),
-    db: Session = Depends(get_db),
-):
-    application = get_application_by_public_id(db, public_id)
-    require_application_owner(current_user, application)
-    subscription = set_subscription(
-        db,
-        application,
-        payload,
-        actor_identifier=str(application.user_id),
-    )
-    db.commit()
-    db.refresh(subscription)
-    return citizen_subscription(subscription)
-
-
-@router.post(
-    "/api/applications/{public_id}/receipt",
-    response_model=ReceiptUploadResponse,
-    tags=["receipts"],
-)
-def upload_receipt(
-    public_id: str,
-    file: UploadFile = File(...),
-    current_user: User = Depends(get_current_demo_user),
-    db: Session = Depends(get_db),
-) -> ReceiptUploadResponse:
-    application = get_application_by_public_id(db, public_id)
-    require_application_owner(current_user, application)
-    data = file.file.read(settings.max_receipt_bytes + 1)
-    subscription, _, duplicate = attach_receipt(
-        db,
-        application,
-        filename=file.filename or "receipt",
-        content_type=file.content_type,
-        data=data,
-        actor_identifier=str(application.user_id),
-    )
-    rate_notice = None
-    if subscription.currency in settings.mock_exchange_rates:
-        rate = settings.mock_exchange_rates[subscription.currency]
-        rate_notice = f"1 {subscription.currency} = NT${rate} (mock demo rate)"
-    return ReceiptUploadResponse(
-        subscription=citizen_subscription(subscription),
-        duplicate_receipt=duplicate,
-        mock_exchange_rate=rate_notice,
-        requires_manual_review=(
-            duplicate
-            or bool(subscription.extraction_confidence is None)
-            or subscription.extraction_confidence < settings.minimum_extraction_confidence
-            or subscription.suspicious_content
-        ),
-    )
-
-
-@router.get(
-    "/api/applications/{public_id}/receipt",
-    response_model=CitizenSubscriptionRead,
-    tags=["receipts"],
-)
-def get_receipt(
-    public_id: str,
-    current_user: User = Depends(get_current_demo_user),
-    db: Session = Depends(get_db),
-):
-    application = get_application_by_public_id(db, public_id)
-    require_application_owner(current_user, application)
-    if application.subscription is None or not application.subscription.receipt_hash:
-        raise ResourceNotFound("RECEIPT_NOT_FOUND", "No receipt has been uploaded.")
-    return citizen_subscription(application.subscription)
-
-
-@router.post(
-    "/api/applications/{public_id}/eligibility/check",
-    response_model=EligibilityEvaluation,
-    tags=["eligibility"],
-)
-def check_eligibility(
-    public_id: str,
-    current_user: User = Depends(get_current_demo_user),
-    db: Session = Depends(get_db),
-) -> EligibilityEvaluation:
-    application = get_application_by_public_id(db, public_id)
-    require_application_owner(current_user, application)
-    if application.status not in {
-        ApplicationStatus.DRAFT,
-        ApplicationStatus.REQUESTED_INFORMATION,
-    }:
-        raise DomainError(
-            "ELIGIBILITY_CHECK_NOT_ALLOWED",
-            "A finalized application uses its recorded eligibility decision.",
-            status_code=409,
-        )
-    evaluation = evaluate_application(db, application, persist=True)
-    db.commit()
-    return evaluation
-
-
-@router.post(
     "/api/applications/{public_id}/submit",
     response_model=CitizenApplicationDetail,
     tags=["applications"],
@@ -293,6 +189,84 @@ def submit(
     submit_application(db, application, actor_identifier=str(application.user_id))
     db.commit()
     return citizen_application_detail(db, public_id)
+
+
+@router.post(
+    "/api/applications/{public_id}/cancel",
+    response_model=CitizenApplicationDetail,
+    tags=["applications"],
+)
+def cancel(
+    public_id: str,
+    current_user: User = Depends(get_current_demo_user),
+    db: Session = Depends(get_db),
+) -> CitizenApplicationDetail:
+    application = get_application_by_public_id(db, public_id, for_update=True)
+    require_application_owner(current_user, application)
+    cancel_application(db, application, actor_identifier=str(application.user_id))
+    db.commit()
+    return citizen_application_detail(db, public_id)
+
+
+@router.get(
+    "/api/applications/{public_id}/status",
+    response_model=ApplicationStatusRead,
+    tags=["applications"],
+)
+def application_status_endpoint(
+    public_id: str,
+    current_user: User = Depends(get_current_demo_user),
+    db: Session = Depends(get_db),
+):
+    application = get_application_by_public_id(db, public_id)
+    require_application_owner(current_user, application)
+    return application_status(application)
+
+
+@router.get("/api/applications/{public_id}/missing-documents", tags=["applications"])
+def missing_documents_endpoint(
+    public_id: str,
+    current_user: User = Depends(get_current_demo_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    application = get_application_by_public_id(db, public_id)
+    require_application_owner(current_user, application)
+    review = application.eligibility_reasons_json or []
+    return {
+        "missing_documents": missing_documents(db, application),
+        "rule_issues": [
+            {"rule": item["rule"], "label": item.get("name"), "reason": item["message"]}
+            for item in review
+            if item.get("result") == "NEED_SUPPLEMENT"
+        ],
+    }
+
+
+@router.get(
+    "/api/applications/{public_id}/payment-status",
+    response_model=PaymentStatusRead,
+    tags=["applications"],
+)
+def payment_status(
+    public_id: str,
+    current_user: User = Depends(get_current_demo_user),
+    db: Session = Depends(get_db),
+) -> PaymentStatusRead:
+    application = get_application_by_public_id(db, public_id)
+    require_application_owner(current_user, application)
+    passbook: dict = {}
+    for document in documents_for(db, application):
+        if document.document_type == "passbook":
+            passbook = {**passbook, **{k: v for k, v in document.ocr_data.items() if v}}
+    account = str(passbook.get("account_number") or "")
+    return PaymentStatusRead(
+        status=application.status,
+        approved_amount_twd=application.approved_amount_twd,
+        bank_name=passbook.get("bank_name"),
+        bank_code=passbook.get("bank_code"),
+        account_number_last4=account[-4:] if account else None,
+        disbursed=application.status is ApplicationStatus.PAID,
+    )
 
 
 @router.get(
@@ -449,6 +423,7 @@ def reviewer_applications(
     status: ApplicationStatus | None = None,
     product: str | None = Query(default=None, max_length=120),
     risk_level: RiskLevel | None = None,
+    ai_result: str | None = Query(default=None, max_length=20),
     search: str | None = Query(default=None, max_length=160),
     limit: int = Query(default=100, ge=1, le=250),
     offset: int = Query(default=0, ge=0),
@@ -459,6 +434,7 @@ def reviewer_applications(
         status=status,
         product=product,
         risk_level=risk_level,
+        ai_result=ai_result,
         search=search,
         limit=limit,
         offset=offset,
@@ -479,9 +455,13 @@ def reviewer_application(public_id: str, db: Session = Depends(get_db)) -> Appli
     response_model=ApplicationDetail,
     tags=["admin"],
 )
-def reviewer_verify(public_id: str, db: Session = Depends(get_db)) -> ApplicationDetail:
+def reviewer_verify(
+    public_id: str,
+    payload: ReviewerIdentityRequest,
+    db: Session = Depends(get_db),
+) -> ApplicationDetail:
     application = get_application_by_public_id(db, public_id, for_update=True)
-    run_verification(db, application)
+    run_verification(db, application, reviewer_identifier=payload.reviewer_name.strip())
     db.commit()
     return application_detail(db, public_id)
 
@@ -500,7 +480,7 @@ def reviewer_approve(
     approve_application(
         db,
         application,
-        reviewer_identifier="demo-reviewer",
+        reviewer_identifier=payload.reviewer_name.strip(),
         reason=payload.reason,
         override_review_flag=payload.override_review_flag,
     )
@@ -522,7 +502,7 @@ def reviewer_reject(
     reject_application(
         db,
         application,
-        reviewer_identifier="demo-reviewer",
+        reviewer_identifier=payload.reviewer_name.strip(),
         reason=payload.reason,
     )
     db.commit()
@@ -543,7 +523,7 @@ def reviewer_request_information(
     request_more_information(
         db,
         application,
-        reviewer_identifier="demo-reviewer",
+        reviewer_identifier=payload.reviewer_name.strip(),
         reason=payload.reason,
     )
     db.commit()
@@ -551,13 +531,69 @@ def reviewer_request_information(
 
 
 @router.post(
+    "/api/admin/applications/{public_id}/flag-check",
+    response_model=ApplicationDetail,
+    tags=["admin"],
+)
+def reviewer_flag_check(
+    public_id: str,
+    payload: ReviewerActionRequest,
+    db: Session = Depends(get_db),
+) -> ApplicationDetail:
+    application = get_application_by_public_id(db, public_id, for_update=True)
+    flag_for_further_check(
+        db,
+        application,
+        reviewer_identifier=payload.reviewer_name.strip(),
+        reason=payload.reason,
+    )
+    db.commit()
+    return application_detail(db, public_id)
+
+
+@router.post(
+    "/api/admin/applications/{public_id}/notify",
+    response_model=MessageResponse,
+    tags=["admin"],
+)
+def reviewer_notify(
+    public_id: str,
+    payload: NotifyRequest,
+    db: Session = Depends(get_db),
+) -> MessageResponse:
+    application = get_application_by_public_id(db, public_id, for_update=True)
+    sent = send_reviewer_message(
+        db,
+        application,
+        reviewer_identifier=payload.reviewer_name.strip(),
+        message=payload.message.strip(),
+    )
+    db.commit()
+    if not sent:
+        raise DomainError(
+            "LINE_NOT_AVAILABLE",
+            "此申請人尚未綁定 LINE，或 LINE 推播尚未設定，訊息未送出。",
+            status_code=409,
+        )
+    return MessageResponse(message="已推播給申請人。")
+
+
+@router.post(
     "/api/admin/applications/{public_id}/process-payment",
     response_model=PaymentRead,
     tags=["admin"],
 )
-def reviewer_process_payment(public_id: str, db: Session = Depends(get_db)) -> PaymentRead:
+def reviewer_process_payment(
+    public_id: str,
+    payload: ReviewerIdentityRequest,
+    db: Session = Depends(get_db),
+) -> PaymentRead:
     application = get_application_by_public_id(db, public_id, for_update=True)
-    payment = process_payment(db, application, actor_identifier="demo-reviewer/mock-treasury")
+    payment = process_payment(
+        db, application, actor_identifier=f"{payload.reviewer_name.strip()}/mock-treasury"
+    )
     db.commit()
     db.refresh(payment)
+    notify_status(db, application)
+    db.commit()
     return PaymentRead.model_validate(payment)

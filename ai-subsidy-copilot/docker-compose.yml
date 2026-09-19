@@ -28,6 +28,11 @@ services:
       AI_PROVIDER: "${AI_PROVIDER:-auto}"
       GEMINI_API_KEY: "${GEMINI_API_KEY:-}"
       GEMINI_MODEL: "${GEMINI_MODEL:-gemini-3.7-flash}"
+      GEMINI_OCR_MODEL: "${GEMINI_OCR_MODEL:-gemini-2.5-flash}"
+      OCR_MODULE_DIR: /ocr
+      FRONTEND_ORIGIN: "${FRONTEND_ORIGIN:-http://localhost:3000}"
+      LINE_INTEGRATION_SECRET: "${LINE_INTEGRATION_SECRET:-}"
+      LINE_CHANNEL_ACCESS_TOKEN: "${LINE_CHANNEL_ACCESS_TOKEN:-}"
       GEMINI_REASONING_EFFORT: "${GEMINI_REASONING_EFFORT:-low}"
       OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
       OPENAI_MODEL: "${OPENAI_MODEL:-gpt-5.6-luna}"
@@ -48,6 +53,7 @@ services:
     volumes:
       - ./knowledge:/knowledge:ro
       - ./demo:/demo:ro
+      - ./ocr:/ocr:ro
       - receipt_storage:/app/storage/receipts
     depends_on:
       postgres:
@@ -63,6 +69,28 @@ services:
       interval: 5s
       timeout: 3s
       retries: 30
+
+  # Optional LINE Bot (docker compose --profile line up). It holds no data: it calls the
+  # backend's internal API, and the backend pushes notifications back through LINE.
+  line-bot:
+    profiles: ["line"]
+    image: node:20-slim
+    working_dir: /ocr
+    command: ["sh", "-c", "npm install --omit=dev --no-audit --no-fund && node line-server.js"]
+    environment:
+      API_BASE_URL: http://backend:8000
+      LINE_INTEGRATION_SECRET: "${LINE_INTEGRATION_SECRET:-}"
+      LINE_CHANNEL_ACCESS_TOKEN: "${LINE_CHANNEL_ACCESS_TOKEN:-}"
+      LINE_CHANNEL_SECRET: "${LINE_CHANNEL_SECRET:-}"
+      GEMINI_API_KEY: "${GEMINI_API_KEY:-}"
+      PORT: "3100"
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./ocr:/ocr
+    depends_on:
+      backend:
+        condition: service_healthy
 
   frontend:
     build:

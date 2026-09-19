@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
-import { ArrowLeft, BookOpen, Calendar, CheckCircle2, FileText, RefreshCw, ShieldAlert, UserRound, WalletCards } from "lucide-react";
+import { ArrowLeft, Ban, BookOpen, Calendar, CheckCircle2, FileText, RefreshCw, ShieldAlert, UserRound, WalletCards } from "lucide-react";
 import { PageContainer } from "@/components/app-shell";
 import { Alert, Button, Card, LoadingState, SectionHeading } from "@/components/ui";
 import { ApplicationTimeline, CurrentStatusCallout } from "@/components/application-timeline";
@@ -11,12 +11,15 @@ import { EligibilityChecklist } from "@/components/eligibility-checklist";
 import { PaymentPanel } from "@/components/payment-panel";
 import { PolicyCitationList } from "@/components/policy-citation";
 import { RiskBadge, StatusBadge } from "@/components/status-badge";
-import { SourceReviewPanel } from "@/components/source-review";
+import { CitizenReviewSummary } from "@/components/source-review";
+import { DocumentUploader } from "@/components/document-uploader";
+import { CANCELLABLE_STATUSES } from "@/lib/intake";
+import { useSession } from "@/contexts/session-context";
 import { KeyValueGrid } from "@/components/application-summary";
 import { SafetyPractice } from "@/components/safety-practice";
 import { api } from "@/lib/api";
 import type { Application, EligibilityResult, TimelineEvent } from "@/lib/types";
-import { formatCurrency, formatDate, formatDateTime, formatReceiptAmount, getErrorMessage, statusDescription } from "@/lib/utils";
+import { formatCurrency, formatDate, formatDateTime, getErrorMessage, statusDescription } from "@/lib/utils";
 
 function eligibilityOf(application: Application): EligibilityResult | null {
   const value = application.eligibility_result;
@@ -31,6 +34,16 @@ export default function ApplicationStatusPage() {
   const [events, setEvents] = useState<TimelineEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [cancelling, setCancelling] = useState(false);
+  const { setActiveApplicationId } = useSession();
+
+  async function cancel() {
+    if (!window.confirm("確定要取消這筆申請嗎？取消後可重新開始新的申請。")) return;
+    setCancelling(true);
+    try { await api.cancelApplication(publicId); setActiveApplicationId(null); await load(); }
+    catch (err) { setError(getErrorMessage(err)); }
+    finally { setCancelling(false); }
+  }
 
   const load = useCallback(async () => {
     try {
@@ -57,6 +70,8 @@ export default function ApplicationStatusPage() {
 
       {submittedNow ? <Alert className="mt-6" tone="success" title="Application submitted">Your application has been recorded. The optional privacy practice below is separate from the application and can be skipped.</Alert> : null}
       {["MANUAL_REVIEW", "REQUESTED_INFORMATION"].includes(application.status) ? <Alert className="mt-6" tone="warning" title={application.status === "REQUESTED_INFORMATION" ? "More information is required" : "This application requires human review"}>{reason ?? (application.risk_reasons?.length ? application.risk_reasons.join(" · ") : "A reviewer is checking the evidence and risk flags.")}</Alert> : null}
+      {application.status === "CANCELLED" ? <Alert className="mt-6" tone="info" title="Application cancelled">此申請案已取消。如要重新申請，請回到申請頁開始新的申請。</Alert> : null}
+      {application.status === "REQUESTED_INFORMATION" ? <div className="mt-4"><Button asChild><Link href="/apply">前往補件並重新送出</Link></Button></div> : null}
       {application.status === "REJECTED" ? <Alert className="mt-6" tone="error" title="Application rejected">{application.review_reason ?? "The application did not meet the demo program requirements."}</Alert> : null}
       {application.status === "PAID" ? <Alert className="mt-6" tone="success" title="Mock subsidy paid">The demo treasury recorded a completed payment of {formatCurrency(application.payment?.amount_twd ?? application.approved_amount_twd)}.</Alert> : null}
 
@@ -74,7 +89,13 @@ export default function ApplicationStatusPage() {
           </Card>
 
           {eligibility ? <EligibilityChecklist result={eligibility} title="Deterministic eligibility checks" /> : null}
-          <SourceReviewPanel publicId={publicId} review={application.source_review} />
+          {application.source_review ? (
+            <Card className="p-5 sm:p-6">
+              <h2 className="mb-4 text-sm font-bold text-navy-900">文件與檢查結果</h2>
+              <CitizenReviewSummary review={application.source_review} />
+              <div className="mt-5"><DocumentUploader publicId={publicId} review={application.source_review} disabled onUpdated={() => undefined} /></div>
+            </Card>
+          ) : null}
 
         </div>
 
@@ -85,13 +106,14 @@ export default function ApplicationStatusPage() {
             <div className="mt-4"><KeyValueGrid items={[
               { label: "Applicant", value: application.applicant?.name ?? "—", icon: UserRound },
               { label: "Submitted", value: formatDateTime(application.submitted_at), icon: Calendar },
-              { label: "AI tool", value: application.subscription?.product ?? "—", icon: FileText },
-              { label: "Receipt amount", value: formatReceiptAmount(application.subscription?.amount, application.subscription?.currency), icon: WalletCards },
-              { label: "Purchase date", value: formatDate(application.subscription?.purchase_date), icon: Calendar },
+              { label: "AI tool", value: application.source_review?.applicant_data.applied_tool_name ?? "—", icon: FileText },
+              { label: "試算補助（未核定）", value: formatCurrency(application.requested_amount_twd), icon: WalletCards },
+              { label: "Purchase date", value: formatDate(application.source_review?.applicant_data.purchase_date), icon: Calendar },
               { label: "Optional safety learning", value: application.safety_progress?.complete ? "4 / 4 Reviewed" : `${application.safety_progress?.completed_count ?? 0} / ${application.safety_progress?.required_count ?? 4} Reviewed`, icon: CheckCircle2 },
             ]} /></div>
           </Card>
           <PaymentPanel application={application} />
+          {CANCELLABLE_STATUSES.includes(application.status) ? <Button variant="outline" className="w-full" loading={cancelling} onClick={cancel}><Ban className="size-4" /> 取消這筆申請</Button> : null}
           {application.policy_citations?.length ? <Card className="p-5"><div className="mb-4 flex items-center gap-2"><BookOpen className="size-4 text-teal-700" /><h2 className="text-sm font-bold text-navy-900">Policy sources</h2></div><PolicyCitationList citations={application.policy_citations} /></Card> : null}
           <div className="flex items-start gap-3 rounded-xl border border-line bg-white p-4 text-xs leading-5 text-slate-500"><ShieldAlert className="mt-0.5 size-4 shrink-0 text-navy-700" /> This page shows concise rule explanations, not hidden model reasoning. Payment status is read from the mock treasury record.</div>
         </aside>

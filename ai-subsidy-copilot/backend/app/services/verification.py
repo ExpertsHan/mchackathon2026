@@ -1,4 +1,4 @@
-"""Deterministic reviewer/demo verification action."""
+"""Reviewer-triggered re-verification. It refreshes the rule-engine verdict only."""
 
 from sqlalchemy.orm import Session
 
@@ -7,10 +7,13 @@ from app.core.errors import DomainError
 from app.models import Application
 from app.services.audit import record_audit
 from app.services.eligibility import evaluate_application
+from app.services.source_review import request_source_supplements
 from app.services.state_machine import transition_application
 
 
-def run_verification(db: Session, application: Application) -> Application:
+def run_verification(
+    db: Session, application: Application, *, reviewer_identifier: str = "system"
+) -> Application:
     if application.status not in {
         ApplicationStatus.SUBMITTED,
         ApplicationStatus.VERIFYING,
@@ -31,55 +34,32 @@ def run_verification(db: Session, application: Application) -> Application:
             application=application,
         )
 
-    result = evaluate_application(db, application, persist=True, reserve_claim=True)
+    result = evaluate_application(db, application, persist=True)
+    if result is None:
+        raise DomainError(
+            "SOURCE_REVIEW_INCOMPLETE",
+            "The application has no evaluated source documents.",
+            status_code=409,
+        )
     if application.status is ApplicationStatus.MANUAL_REVIEW:
         record_audit(
             db,
             action="MANUAL_REVIEW_RECHECKED",
-            actor_type=ActorType.RULE_ENGINE,
-            actor_identifier="deterministic-eligibility-v1",
+            actor_type=ActorType.REVIEWER,
+            actor_identifier=reviewer_identifier,
             application=application,
-            details={"outcome": result.outcome, "risk_level": result.risk_level},
+            details={"ai_result": result.ai_result, "risk_level": result.risk_level},
         )
         return application
 
-    if result.requires_manual_review:
-        transition_application(application, ApplicationStatus.MANUAL_REVIEW)
-        record_audit(
-            db,
-            action="MANUAL_REVIEW_TRIGGERED",
-            actor_type=ActorType.RULE_ENGINE,
-            actor_identifier="deterministic-eligibility-v1",
-            application=application,
-            details={"risk_level": result.risk_level, "reasons": result.risk_reasons},
-        )
-        from app.services.source_review import request_source_supplements
-
-        request_source_supplements(db, application)
-    elif result.eligible:
-        transition_application(application, ApplicationStatus.APPROVED)
-        application.approved_amount_twd = result.approved_amount_twd
-        record_audit(
-            db,
-            action="APPLICATION_APPROVED",
-            actor_type=ActorType.RULE_ENGINE,
-            actor_identifier="deterministic-policy-workflow-v1",
-            application=application,
-            details={
-                "decision_authority": "RULE_ENGINE",
-                "approved_amount_twd": result.approved_amount_twd,
-            },
-        )
-    else:
-        transition_application(application, ApplicationStatus.REJECTED)
-        record_audit(
-            db,
-            action="APPLICATION_REJECTED",
-            actor_type=ActorType.RULE_ENGINE,
-            actor_identifier="deterministic-policy-workflow-v1",
-            application=application,
-            details={
-                "failed_rules": [check.rule.value for check in result.checks if not check.passed]
-            },
-        )
+    transition_application(application, ApplicationStatus.MANUAL_REVIEW)
+    record_audit(
+        db,
+        action="MANUAL_REVIEW_TRIGGERED",
+        actor_type=ActorType.RULE_ENGINE,
+        actor_identifier="ocr-rules-v1",
+        application=application,
+        details={"ai_result": result.ai_result, "risk_level": result.risk_level},
+    )
+    request_source_supplements(db, application)
     return application

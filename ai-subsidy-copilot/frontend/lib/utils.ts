@@ -18,14 +18,6 @@ export function formatCurrency(value?: number | null) {
     .replace("NT$", "NT$");
 }
 
-export function formatReceiptAmount(amount?: number | null, currency?: string | null) {
-  if (amount === null || amount === undefined) return "—";
-  return `${currency ?? ""} ${new Intl.NumberFormat("en-US", {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 2,
-  }).format(amount)}`.trim();
-}
-
 export function formatDate(value?: string | null, options?: Intl.DateTimeFormatOptions) {
   if (!value) return "—";
   const date = new Date(value);
@@ -67,6 +59,7 @@ export function statusDescription(status: ApplicationStatus) {
     REJECTED: "The application did not meet the demo program requirements.",
     PAYMENT_SCHEDULED: "A mock payment has been scheduled by the treasury service.",
     PAID: "The mock subsidy payment is complete.",
+    CANCELLED: "This application was cancelled.",
   };
   return descriptions[status];
 }

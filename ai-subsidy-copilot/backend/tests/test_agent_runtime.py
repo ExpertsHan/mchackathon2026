@@ -196,10 +196,8 @@ def test_gemini_progress_tool_is_bound_to_authenticated_application(
     tool_message = next(item for item in continuation if item["role"] == "tool")
     progress = json.loads(tool_message["content"])
     assert progress["public_id"] == public_id
-    assert progress["missing_fields"] == [
-        "subscription product",
-        "receipt",
-    ]
+    assert "軟體名稱" in progress["missing_fields"]
+    assert "購買憑證/發票" in progress["missing_fields"]
 
 
 def test_json_chat_uses_responses_api_and_persists_sanitized_history(
@@ -317,10 +315,8 @@ def test_progress_tool_is_bound_to_authenticated_application(
     )
     progress = json.loads(tool_output["output"])
     assert progress["public_id"] == public_id
-    assert progress["missing_fields"] == [
-        "subscription product",
-        "receipt",
-    ]
+    assert "軟體名稱" in progress["missing_fields"]
+    assert "購買憑證/發票" in progress["missing_fields"]
 
 
 def test_sse_falls_back_before_text_when_model_requests_unknown_tool(

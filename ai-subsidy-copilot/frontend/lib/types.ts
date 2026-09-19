@@ -7,7 +7,8 @@ export type ApplicationStatus =
   | "APPROVED"
   | "REJECTED"
   | "PAYMENT_SCHEDULED"
-  | "PAID";
+  | "PAID"
+  | "CANCELLED";
 
 export type RiskLevel = "LOW" | "MEDIUM" | "HIGH";
 
@@ -26,30 +27,16 @@ export interface DemoLoginResponse {
   notice?: string;
 }
 
-export interface Subscription {
-  id?: string;
-  provider: string | null;
-  product: string | null;
-  amount?: number | null;
-  currency?: string | null;
-  amount_twd?: number | null;
-  purchase_date?: string | null;
-  receipt_filename?: string | null;
-  receipt_hash?: string | null;
-  receipt_uploaded?: boolean;
-  receipt_reference?: string | null;
-  account_email?: string | null;
-  extraction_confidence?: number | null;
-  extraction_json?: Record<string, unknown>;
-  extraction_warnings_json?: string[];
-  suspicious_content?: boolean;
-}
+export type RuleResult = "PASS" | "REVIEW" | "NEED_SUPPLEMENT" | "REJECT" | "FRAUD_RISK";
 
 export interface EligibilityCheck {
   rule: string;
+  name?: string | null;
   passed: boolean | null;
   message: string;
+  blocking?: boolean;
   requires_manual_review?: boolean;
+  result?: RuleResult | null;
 }
 
 export interface EligibilityResult {
@@ -61,6 +48,7 @@ export interface EligibilityResult {
   checks: EligibilityCheck[];
   risk_level?: RiskLevel;
   risk_reasons?: string[];
+  ai_result?: RuleResult | null;
 }
 
 export interface PolicyCitation {
@@ -95,7 +83,6 @@ export interface Application {
   user_id: string;
   user?: DemoUser | null;
   applicant?: DemoUser | null;
-  subscription?: Subscription | null;
   requested_amount_twd?: number | null;
   approved_amount_twd?: number | null;
   eligibility_result?: EligibilityResult | string | null;
@@ -103,6 +90,7 @@ export interface Application {
   policy_citations?: PolicyCitation[];
   risk_level: RiskLevel;
   risk_reasons?: string[];
+  flagged_for_check?: boolean;
   status: ApplicationStatus;
   review_reason?: string | null;
   requested_information?: string | null;
@@ -118,9 +106,63 @@ export interface Application {
 }
 
 export type SourceDocumentType = "receipt" | "id_card" | "passbook" | "declaration" | "cultural_proof" | "payer_declaration";
-export interface SourceApplicant { birth_date?: string | null; household_address?: string | null; applicant_type?: "normal" | "special" | "language"; payment_type?: "monthly" | "annual"; software_category?: "general" | "image" | "office" | "learning" | "other"; purchase_date?: string | null; declared_amount?: number | null; is_own_credit_card?: boolean; }
-export interface SourceRule { id: string; name: string; condition: string; data_source: string; ocr_field: string | null; confidence: number | null; status: string; result: string | null; reason: string; disposition: string; }
-export interface SourceReview { applicant_data: SourceApplicant; documents: Array<{ id: string; document_type: SourceDocumentType; filename: string; content_type: string; size_bytes: number; ocr_status: string; active: boolean; created_at: string; ocr_data?: Record<string, unknown>; sha256?: string; }>; evaluation: { result: string; error?: string; policy_notice: string; evaluated_at: string; documents_required: boolean; rules?: SourceRule[]; cross_validation?: Array<{ check: string; label: string; a_source: string; a_value: unknown; b_source: string; b_value: unknown; result: string }>; applicant_data?: Record<string, unknown>; ocr_data?: Record<string, unknown>; knowledge_base_data?: Record<string, unknown>; confidence_sources?: { ocr: Record<string, number | null>; knowledge_base: number; rule_engine: number; note: string }; subsidy?: { subsidy_amount: number | null; eligible_amount: number | null; subsidy_rate: number | null; subsidy_cap: number | null; source: string | null; unknown: boolean }; supplement_center?: { items: Array<{ rule_id: string; missing_item: string; reason: string }>; deadline?: string }; }; }
+export type ApplicantType = "normal" | "special" | "language";
+export type PaymentType = "monthly" | "annual";
+export type SoftwareCategory = "general" | "image" | "office" | "learning" | "other";
+export type Currency = "TWD" | "USD" | "JPY" | "EUR" | "AUD" | "HKD" | "other";
+
+/** The applicant form. `id_number` is write-only: it is hashed by the server and never returned. */
+export interface SourceApplicant {
+  id_number?: string | null;
+  phone?: string | null;
+  birth_date?: string | null;
+  household_address?: string | null;
+  mailing_address?: string | null;
+  applicant_type?: ApplicantType;
+  applicant_subtype?: string | null;
+  payment_type?: PaymentType;
+  software_category?: SoftwareCategory;
+  applied_tool_name?: string | null;
+  software_company?: string | null;
+  purchase_date?: string | null;
+  is_own_credit_card?: boolean;
+  original_currency?: Currency | null;
+  original_amount?: number | null;
+  declared_amount?: number | null;
+}
+
+export interface SourceRule { id: string; name: string; condition: string; data_source: string; ocr_field: string | null; confidence: number | null; status: string; result: RuleResult | null; reason: string; disposition: RuleResult; risk?: string }
+export interface SourceSubsidy { applicant_category?: string; subsidy_amount: number | null; eligible_amount: number | null; subsidy_rate: number | null; subsidy_cap: number | null; source?: string | null; unknown: boolean }
+export interface CrossValidationRow { check: string; label: string; a_source: string; a_value: unknown; b_source: string; b_value: unknown; result: "MATCH" | "PARTIAL_MATCH" | "MISMATCH" | "UNKNOWN" }
+export interface SourceDocumentRecord { id: string; document_type: SourceDocumentType; filename: string; content_type: string; size_bytes: number; ocr_status: string; active: boolean; created_at: string; ocr_data?: Record<string, unknown>; sha256?: string }
+export interface RequiredDocument { document_type: SourceDocumentType; label: string; multiple: boolean; uploaded_count: number }
+export interface MissingDocument { document_type: SourceDocumentType; label: string; reason: string }
+
+export interface SourceEvaluation {
+  result: RuleResult;
+  error?: string;
+  policy_notice: string;
+  evaluated_at: string;
+  documents_required: boolean;
+  rules?: SourceRule[];
+  cross_validation?: CrossValidationRow[];
+  applicant_data?: Record<string, unknown>;
+  ocr_data?: Record<string, Record<string, unknown>>;
+  knowledge_base_data?: { tool?: { product_name: string; company: string; category: string | null; country_or_region: string; eligible: boolean; prohibited_reason: string | null; last_verified_at: string } | null; is_aggregator?: boolean; aggregator_name?: string | null; is_official_source?: boolean | null };
+  confidence_sources?: { ocr: Record<string, number | null>; knowledge_base: number; rule_engine: number; note: string };
+  subsidy?: SourceSubsidy;
+  supplement_center?: { items: Array<{ rule_id: string; missing_item: string; reason: string }>; deadline?: string };
+}
+
+export interface SourceReview {
+  applicant_data: SourceApplicant;
+  documents: SourceDocumentRecord[];
+  evaluation: SourceEvaluation;
+  required_documents: RequiredDocument[];
+  missing_documents: MissingDocument[];
+}
+
+export interface ApplicationStatusInfo { public_id: string; status: ApplicationStatus; information_request: string | null; estimated_subsidy_twd: number | null; approved_amount_twd: number | null; updated_at: string }
 
 export interface TimelineEvent {
   key?: string;
@@ -231,8 +273,20 @@ export interface AdminStats {
   rejected: number;
   payment_scheduled?: number;
   paid: number;
+  cancelled?: number;
   total_approved_subsidy: number;
   total_paid_amount: number;
+  documents_uploaded: number;
+  documents_ocr_processed: number;
+  ocr_fields_extracted: number;
+  applications_submitted: number;
+  rules_total_checked: number;
+  rules_auto_passed: number;
+  issues_found: number;
+  supplement_notifications_sent: number;
+  applications_needing_human_review: number;
+  estimated_minutes_saved: number;
+  assumption_note: string;
 }
 
 export interface AdminApplicationList {
@@ -244,17 +298,13 @@ export interface AdminApplicationRow {
   public_id: string;
   applicant: string;
   product: string | null;
+  applicant_type?: ApplicantType | null;
+  ai_result?: RuleResult | null;
+  flagged_for_check?: boolean;
   requested_amount_twd: number | null;
   approved_amount_twd: number | null;
   risk_level: RiskLevel;
   status: ApplicationStatus;
   submitted_at: string | null;
   created_at: string;
-}
-
-export interface ProductOption {
-  provider: string;
-  product: string;
-  description: string;
-  eligible: boolean;
 }

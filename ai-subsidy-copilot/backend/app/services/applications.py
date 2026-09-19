@@ -10,11 +10,18 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.core.enums import ActorType, ApplicationStatus, EligibilityOutcome
 from app.core.errors import DomainError, ResourceNotFound
-from app.models import Application, ApplicationIdSequence, SourceReview, Subscription, User
-from app.schemas import EligibilityEvaluation, SubscriptionInput
+from app.models import Application, ApplicationIdSequence, User
 from app.services.audit import record_audit
-from app.services.claim_reservations import reserve_claim_keys
-from app.services.eligibility import convert_to_twd, evaluate_application
+from app.services.claim_reservations import release_claim_keys, reserve_claim_keys
+from app.services.eligibility import evaluate_application, subsidy_amount
+from app.services.line_notify import notify_applicant, notify_status
+from app.services.source_review import (
+    OPEN_STATUSES,
+    get_review,
+    missing_applicant_fields,
+    missing_documents,
+    request_source_supplements,
+)
 from app.services.state_machine import transition_application
 
 
@@ -76,6 +83,18 @@ def create_application(
     user = db.get(User, user_id)
     if user is None:
         raise ResourceNotFound("USER_NOT_FOUND", "The selected demo applicant was not found.")
+    open_application = db.scalar(
+        select(Application.public_id).where(
+            Application.user_id == user.id, Application.status.in_(OPEN_STATUSES)
+        )
+    )
+    if open_application:
+        raise DomainError(
+            "ACTIVE_APPLICATION_EXISTS",
+            "同一人同時間只能有一筆申請案，請先完成或取消目前的申請。",
+            status_code=409,
+            details={"public_id": open_application},
+        )
     application = Application(public_id=generate_public_id(db), user_id=user.id)
     db.add(application)
     db.flush()
@@ -90,74 +109,14 @@ def create_application(
     return application
 
 
-def set_subscription(
-    db: Session,
-    application: Application,
-    data: SubscriptionInput,
-    *,
-    actor_identifier: str | None = None,
-) -> Subscription:
-    if application.status not in {
-        ApplicationStatus.DRAFT,
-        ApplicationStatus.REQUESTED_INFORMATION,
-    }:
-        raise DomainError(
-            "APPLICATION_NOT_EDITABLE",
-            "Subscription information cannot be changed in the current state.",
-            status_code=409,
-        )
-
-    subscription = application.subscription
-    if subscription is None:
-        subscription = Subscription(user_id=application.user_id)
-        db.add(subscription)
-        db.flush()
-        application.subscription_id = subscription.id
-        application.subscription = subscription
-
-    values = data.model_dump(exclude_unset=True)
-    if values and (subscription.receipt_hash or subscription.extraction_json):
-        raise DomainError(
-            "RECEIPT_EVIDENCE_LOCKED",
-            "Subscription evidence cannot be edited after receipt extraction. Upload a new "
-            "receipt through the receipt endpoint to replace the evidence.",
-            status_code=409,
-        )
-    if values.get("amount_twd") is None and values.get("amount") and values.get("currency"):
-        try:
-            values["amount_twd"] = convert_to_twd(values["amount"], values["currency"])
-        except ValueError as exc:
-            raise DomainError(
-                "UNSUPPORTED_CURRENCY",
-                str(exc),
-                status_code=422,
-            ) from exc
-    for key, value in values.items():
-        setattr(subscription, key, value)
-    db.flush()
-    record_audit(
-        db,
-        "SUBSCRIPTION_SELECTED",
-        ActorType.CITIZEN,
-        actor_identifier or str(application.user_id),
-        application=application,
-        details={
-            "provider": subscription.provider,
-            "product": subscription.product,
-            "amount": subscription.amount,
-            "currency": subscription.currency,
-            "mock_amount_twd": subscription.amount_twd,
-        },
-    )
-    return subscription
-
-
 def submit_application(
     db: Session,
     application: Application,
     *,
     actor_identifier: str | None = None,
 ) -> Application:
+    """Submit for human review. The rule engine advises; it never approves or rejects."""
+
     if application.status not in {
         ApplicationStatus.DRAFT,
         ApplicationStatus.REQUESTED_INFORMATION,
@@ -167,20 +126,30 @@ def submit_application(
             "Only a draft or information-requested application can be submitted.",
             status_code=409,
         )
-    if application.subscription is None:
+    review = get_review(db, application)
+    incomplete = missing_applicant_fields(review)
+    if not review.documents_required or incomplete:
         raise DomainError(
-            "MISSING_SUBSCRIPTION",
-            "Add subscription and receipt information before submission.",
-            status_code=409,
+            "APPLICANT_DATA_INCOMPLETE",
+            "申請資料尚未填寫完整：" + "、".join(incomplete or ["申請資料"]),
+            status_code=400,
+            details={"missing": incomplete},
         )
-
-    result = evaluate_application(db, application, persist=True, reserve_claim=True)
+    absent = missing_documents(db, application)
+    if absent:
+        raise DomainError(
+            "DOCUMENTS_INCOMPLETE",
+            "文件尚未齊全：" + "、".join(item["label"] for item in absent),
+            status_code=400,
+            details={"missing": [item["label"] for item in absent]},
+        )
+    resubmission = application.submitted_at is not None
 
     transition_application(application, ApplicationStatus.SUBMITTED)
     application.information_request = None
     record_audit(
         db,
-        "APPLICATION_SUBMITTED",
+        "APPLICATION_RESUBMITTED" if resubmission else "APPLICATION_SUBMITTED",
         ActorType.CITIZEN,
         actor_identifier or str(application.user_id),
         application=application,
@@ -194,45 +163,60 @@ def submit_application(
         "policy-workflow-v1",
         application=application,
     )
-
-    if result.requires_manual_review:
-        transition_application(application, ApplicationStatus.MANUAL_REVIEW)
-        record_audit(
-            db,
-            "MANUAL_REVIEW_TRIGGERED",
-            ActorType.RULE_ENGINE,
-            "deterministic-eligibility-v1",
-            application=application,
-            details={"risk_level": result.risk_level, "reasons": result.risk_reasons},
+    result = evaluate_application(db, application, persist=True)
+    if result is None:
+        raise DomainError(
+            "SOURCE_REVIEW_UNAVAILABLE", "無法完成資料比對，請稍後再試。", status_code=503
         )
-        from app.services.source_review import request_source_supplements
-
-        request_source_supplements(db, application)
-    elif result.eligible:
-        transition_application(application, ApplicationStatus.APPROVED)
-        application.approved_amount_twd = result.approved_amount_twd
-        record_audit(
-            db,
-            "APPLICATION_APPROVED",
-            ActorType.RULE_ENGINE,
-            "deterministic-policy-workflow-v1",
-            application=application,
-            details={
-                "decision_authority": "RULE_ENGINE",
-                "approved_amount_twd": result.approved_amount_twd,
-            },
-        )
-    else:
-        transition_application(application, ApplicationStatus.REJECTED)
-        record_audit(
-            db,
-            "APPLICATION_REJECTED",
-            ActorType.RULE_ENGINE,
-            "deterministic-policy-workflow-v1",
-            application=application,
-            details={"failed_rules": _failed_rules(result)},
-        )
+    transition_application(application, ApplicationStatus.MANUAL_REVIEW)
+    record_audit(
+        db,
+        "MANUAL_REVIEW_TRIGGERED",
+        ActorType.RULE_ENGINE,
+        "ocr-rules-v1",
+        application=application,
+        details={
+            "ai_result": result.ai_result,
+            "risk_level": result.risk_level,
+            "reasons": result.risk_reasons,
+            "recommendation": "REJECT" if result.ai_result == "REJECT" else None,
+        },
+    )
+    supplement_message = request_source_supplements(db, application)
     db.flush()
+    if supplement_message:
+        notify_status(db, application, detail=supplement_message)
+    else:
+        notify_status(db, application)
+    return application
+
+
+def cancel_application(
+    db: Session, application: Application, *, actor_identifier: str | None = None
+) -> Application:
+    if application.status in {
+        ApplicationStatus.APPROVED,
+        ApplicationStatus.PAYMENT_SCHEDULED,
+        ApplicationStatus.PAID,
+        ApplicationStatus.REJECTED,
+        ApplicationStatus.CANCELLED,
+    }:
+        raise DomainError(
+            "CANCEL_NOT_ALLOWED",
+            "此申請案已進入撥款或已結案，無法自行取消，如有需要請洽承辦人員。",
+            status_code=409,
+        )
+    transition_application(application, ApplicationStatus.CANCELLED)
+    release_claim_keys(db, application)
+    record_audit(
+        db,
+        "APPLICATION_CANCELLED",
+        ActorType.CITIZEN,
+        actor_identifier or str(application.user_id),
+        application=application,
+    )
+    db.flush()
+    notify_status(db, application)
     return application
 
 
@@ -244,11 +228,10 @@ def approve_application(
     reason: str,
     override_review_flag: bool = False,
 ) -> Application:
+    """Reviewer approval. The payable amount is the rule engine's trial subsidy."""
+
     _validate_reason(reason)
-    if application.status not in {
-        ApplicationStatus.MANUAL_REVIEW,
-        ApplicationStatus.VERIFYING,
-    }:
+    if application.status is not ApplicationStatus.MANUAL_REVIEW:
         raise DomainError(
             "INVALID_STATE_TRANSITION",
             "This application is not awaiting a reviewer decision.",
@@ -256,47 +239,51 @@ def approve_application(
         )
 
     result = evaluate_application(db, application, persist=True)
-    source_review = db.get(SourceReview, application.id)
-    if (
-        source_review is not None
-        and source_review.documents_required
-        and source_review.evaluation.get("result") in {"NEED_SUPPLEMENT", "REJECT"}
-    ):
+    if result is None:
         raise DomainError(
             "SOURCE_REVIEW_INCOMPLETE",
-            "Required source documents or OCR policy checks must be resolved before approval.",
+            "Required source documents have not been evaluated.",
             status_code=409,
         )
-
-    blocking_failures = [
-        check.rule.value for check in result.checks if not check.passed and check.blocking
-    ]
-    if result.estimated_amount_twd <= 0:
-        blocking_failures.append("VALID_RECEIPT_AMOUNT")
-    if blocking_failures:
+    if result.ai_result == "NEED_SUPPLEMENT":
+        raise DomainError(
+            "SOURCE_REVIEW_INCOMPLETE",
+            "Required source documents or checks must be supplemented before approval.",
+            status_code=409,
+            details={
+                "failed_rules": [
+                    check.rule for check in result.checks if check.result == "NEED_SUPPLEMENT"
+                ]
+            },
+        )
+    review = get_review(db, application)
+    amount = subsidy_amount(review.evaluation)
+    if amount is None or amount <= 0:
         raise DomainError(
             "APPROVAL_BLOCKED_BY_POLICY",
-            "Reviewer approval cannot override a failed mandatory policy rule.",
+            "A positive subsidy amount could not be established from the evidence.",
             status_code=409,
-            details={"failed_rules": blocking_failures},
+            details={"failed_rules": ["RULE-020"]},
         )
-    if not result.eligible and not override_review_flag:
+    flagged = [check.rule for check in result.checks if check.result]
+    if flagged and not override_review_flag:
         raise DomainError(
             "REVIEW_OVERRIDE_REQUIRED",
-            "Confirm the evidence-based review override and provide a reason.",
+            "The rule engine flagged this case. Confirm the override and give a reason.",
             status_code=409,
+            details={"failed_rules": flagged, "ai_result": result.ai_result},
         )
     reservation_conflicts = reserve_claim_keys(db, application)
     if reservation_conflicts:
         raise DomainError(
             "CLAIM_RESERVATION_CONFLICT",
-            "Another approved application already holds this receipt or monthly claim.",
+            "Another approved application already holds this receipt.",
             status_code=409,
             details={"conflicts": reservation_conflicts},
         )
 
     transition_application(application, ApplicationStatus.APPROVED)
-    application.approved_amount_twd = result.estimated_amount_twd
+    application.approved_amount_twd = amount
     application.eligibility_result = EligibilityOutcome.ELIGIBLE
     application.reviewer_reason = reason.strip()
     record_audit(
@@ -307,12 +294,14 @@ def approve_application(
         application=application,
         details={
             "reason": reason.strip(),
-            "review_flag_overridden": not result.eligible,
-            "previous_outcome": result.outcome,
+            "review_flag_overridden": bool(flagged),
+            "overridden_rules": flagged,
+            "ai_result": result.ai_result,
             "approved_amount_twd": application.approved_amount_twd,
         },
     )
     db.flush()
+    notify_status(db, application)
     return application
 
 
@@ -326,7 +315,7 @@ def reject_application(
     _validate_reason(reason)
     if application.status not in {
         ApplicationStatus.MANUAL_REVIEW,
-        ApplicationStatus.VERIFYING,
+        ApplicationStatus.REQUESTED_INFORMATION,
     }:
         raise DomainError(
             "INVALID_STATE_TRANSITION",
@@ -344,7 +333,9 @@ def reject_application(
         application=application,
         details={"reason": reason.strip()},
     )
+    release_claim_keys(db, application)
     db.flush()
+    notify_status(db, application)
     return application
 
 
@@ -373,7 +364,48 @@ def request_more_information(
         details={"message": reason.strip()},
     )
     db.flush()
+    notify_status(db, application, detail=reason.strip())
     return application
+
+
+def flag_for_further_check(
+    db: Session, application: Application, *, reviewer_identifier: str, reason: str
+) -> Application:
+    """Mark a case for deeper checking without changing its status."""
+
+    _validate_reason(reason)
+    if application.status is not ApplicationStatus.MANUAL_REVIEW:
+        raise DomainError(
+            "INVALID_STATE_TRANSITION",
+            "Only a case in manual review can be flagged for further checks.",
+            status_code=409,
+        )
+    application.flagged_for_check = True
+    record_audit(
+        db,
+        "FLAGGED_FOR_FURTHER_CHECK",
+        ActorType.REVIEWER,
+        reviewer_identifier,
+        application=application,
+        details={"reason": reason.strip()},
+    )
+    db.flush()
+    return application
+
+
+def send_reviewer_message(
+    db: Session, application: Application, *, reviewer_identifier: str, message: str
+) -> bool:
+    sent = notify_applicant(db, application, message, actor_identifier=reviewer_identifier)
+    record_audit(
+        db,
+        "REVIEWER_MESSAGE_SENT" if sent else "REVIEWER_MESSAGE_NOT_DELIVERED",
+        ActorType.REVIEWER,
+        reviewer_identifier,
+        application=application,
+        details={"length": len(message)},
+    )
+    return sent
 
 
 def _validate_reason(reason: str) -> None:
@@ -383,7 +415,3 @@ def _validate_reason(reason: str) -> None:
             "A meaningful reviewer reason is required.",
             status_code=422,
         )
-
-
-def _failed_rules(result: EligibilityEvaluation) -> list[str]:
-    return [check.rule.value for check in result.checks if not check.passed]

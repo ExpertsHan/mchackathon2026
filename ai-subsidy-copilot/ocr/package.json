@@ -1,0 +1,16 @@
+{
+  "name": "ai-subsidy-ocr-engine",
+  "version": "4.0.0",
+  "private": true,
+  "description": "OCR + RULE-001~020 規則引擎（由 FastAPI 以子行程呼叫 copilot-bridge.js，無需安裝套件）與獨立 LINE Bot 行程（line-server.js）",
+  "scripts": {
+    "line": "node line-server.js",
+    "rich-menu": "node setup-rich-menu.js",
+    "sync-tools": "node export-register.js"
+  },
+  "dependencies": {
+    "@line/bot-sdk": "^9.4.2",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2"
+  }
+}

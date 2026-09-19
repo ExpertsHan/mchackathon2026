@@ -9,27 +9,31 @@ from app.core.errors import InvalidStateTransition
 from app.models import Application, utcnow
 
 VALID_TRANSITIONS: dict[ApplicationStatus, frozenset[ApplicationStatus]] = {
-    ApplicationStatus.DRAFT: frozenset({ApplicationStatus.SUBMITTED}),
-    ApplicationStatus.SUBMITTED: frozenset({ApplicationStatus.VERIFYING}),
+    ApplicationStatus.DRAFT: frozenset({ApplicationStatus.SUBMITTED, ApplicationStatus.CANCELLED}),
+    ApplicationStatus.SUBMITTED: frozenset(
+        {ApplicationStatus.VERIFYING, ApplicationStatus.CANCELLED}
+    ),
+    # The rule engine never approves or rejects: verification can only hand a case to a
+    # human reviewer, and only MANUAL_REVIEW can reach APPROVED / REJECTED.
     ApplicationStatus.VERIFYING: frozenset(
-        {
-            ApplicationStatus.MANUAL_REVIEW,
-            ApplicationStatus.APPROVED,
-            ApplicationStatus.REJECTED,
-        }
+        {ApplicationStatus.MANUAL_REVIEW, ApplicationStatus.CANCELLED}
     ),
     ApplicationStatus.MANUAL_REVIEW: frozenset(
         {
             ApplicationStatus.APPROVED,
             ApplicationStatus.REJECTED,
             ApplicationStatus.REQUESTED_INFORMATION,
+            ApplicationStatus.CANCELLED,
         }
     ),
-    ApplicationStatus.REQUESTED_INFORMATION: frozenset({ApplicationStatus.SUBMITTED}),
+    ApplicationStatus.REQUESTED_INFORMATION: frozenset(
+        {ApplicationStatus.SUBMITTED, ApplicationStatus.REJECTED, ApplicationStatus.CANCELLED}
+    ),
     ApplicationStatus.APPROVED: frozenset({ApplicationStatus.PAYMENT_SCHEDULED}),
     ApplicationStatus.REJECTED: frozenset(),
     ApplicationStatus.PAYMENT_SCHEDULED: frozenset({ApplicationStatus.PAID}),
     ApplicationStatus.PAID: frozenset(),
+    ApplicationStatus.CANCELLED: frozenset(),
 }
 
 

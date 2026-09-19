@@ -71,6 +71,9 @@ class User(Base):
     id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
     government_id_masked: Mapped[str] = mapped_column(String(40), nullable=False)
+    # SHA-256 of the normalized national ID. Used only to find another active
+    # application by the same person; the plaintext ID is never persisted.
+    government_id_hash: Mapped[str | None] = mapped_column(String(64), index=True)
     age: Mapped[int] = mapped_column(Integer, nullable=False)
     email: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
     identity_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
@@ -154,6 +157,7 @@ class Application(Base):
         index=True,
     )
     reviewer_reason: Mapped[str | None] = mapped_column(Text)
+    flagged_for_check: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     information_request: Mapped[str | None] = mapped_column(Text)
     submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

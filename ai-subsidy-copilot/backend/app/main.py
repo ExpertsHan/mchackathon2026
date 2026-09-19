@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
+from app.api.line import router as line_router
 from app.api.router import router
 from app.api.source_review import router as source_review_router
 from app.core.config import settings
@@ -100,3 +101,4 @@ def health() -> dict[str, object]:
 
 app.include_router(router)
 app.include_router(source_review_router)
+app.include_router(line_router)

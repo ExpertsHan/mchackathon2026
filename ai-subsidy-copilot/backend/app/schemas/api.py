@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime
+from datetime import datetime
 from decimal import Decimal
 from typing import Any, Literal
 
@@ -15,7 +15,6 @@ from app.schemas.domain import (
     AuditLogRead,
     EligibilityEvaluation,
     PaymentRead,
-    SubscriptionRead,
     UserRead,
 )
 from app.schemas.policy import PolicyCitation
@@ -85,36 +84,6 @@ class SafetyEngagementEventRequest(BaseModel):
         return self
 
 
-class CitizenSubscriptionRead(BaseModel):
-    """Receipt view safe for the owning citizen portal.
-
-    Hashes, account emails, extraction payloads, and private storage paths are
-    reviewer evidence and are intentionally absent.
-    """
-
-    id: uuid.UUID
-    provider: str | None
-    product: str | None
-    amount: Decimal | None
-    currency: str | None
-    amount_twd: Decimal | None
-    purchase_date: date | None
-    receipt_filename: str | None
-    receipt_reference: str | None
-    extraction_confidence: float | None
-    extraction_warnings_json: list[str]
-    suspicious_content: bool
-    receipt_uploaded: bool
-    created_at: datetime
-
-
-class ReceiptUploadResponse(BaseModel):
-    subscription: CitizenSubscriptionRead
-    duplicate_receipt: bool
-    mock_exchange_rate: str | None = None
-    requires_manual_review: bool
-
-
 class CitizenAuditLogRead(BaseModel):
     id: uuid.UUID
     actor_type: str
@@ -126,7 +95,6 @@ class CitizenAuditLogRead(BaseModel):
 class CitizenApplicationDetail(BaseModel):
     application: ApplicationRead
     applicant: UserRead
-    subscription: CitizenSubscriptionRead | None = None
     eligibility: EligibilityEvaluation | None = None
     payment: PaymentRead | None = None
     citations: list[PolicyCitation] = Field(default_factory=list)
@@ -138,7 +106,6 @@ class CitizenApplicationDetail(BaseModel):
 class ApplicationDetail(BaseModel):
     application: ApplicationRead
     applicant: UserRead
-    subscription: SubscriptionRead | None = None
     eligibility: EligibilityEvaluation | None = None
     payment: PaymentRead | None = None
     citations: list[PolicyCitation] = Field(default_factory=list)
@@ -173,14 +140,30 @@ class AdminStats(BaseModel):
     rejected: int
     payment_scheduled: int
     paid: int
+    cancelled: int = 0
     total_approved_subsidy: Decimal
     total_paid_amount: Decimal
+    # "What the AI did for the city" dashboard (ported from the OCR admin console).
+    documents_uploaded: int = 0
+    documents_ocr_processed: int = 0
+    ocr_fields_extracted: int = 0
+    applications_submitted: int = 0
+    rules_total_checked: int = 0
+    rules_auto_passed: int = 0
+    issues_found: int = 0
+    supplement_notifications_sent: int = 0
+    applications_needing_human_review: int = 0
+    estimated_minutes_saved: int = 0
+    assumption_note: str = ""
 
 
 class AdminApplicationRow(BaseModel):
     public_id: str
     applicant: str
     product: str | None
+    applicant_type: str | None = None
+    ai_result: str | None = None
+    flagged_for_check: bool = False
     requested_amount_twd: Decimal | None
     approved_amount_twd: Decimal | None
     risk_level: RiskLevel
@@ -227,3 +210,30 @@ class AgentHistoryResponse(BaseModel):
 
 class MessageResponse(BaseModel):
     message: str
+
+
+class ApplicationStatusRead(BaseModel):
+    public_id: str
+    status: ApplicationStatus
+    information_request: str | None = None
+    estimated_subsidy_twd: Decimal | None = None
+    approved_amount_twd: Decimal | None = None
+    updated_at: datetime
+
+
+class PaymentStatusRead(BaseModel):
+    status: ApplicationStatus
+    approved_amount_twd: Decimal | None = None
+    bank_name: str | None = None
+    bank_code: str | None = None
+    account_number_last4: str | None = None
+    disbursed: bool = False
+
+
+class NotifyRequest(BaseModel):
+    reviewer_name: str = Field(min_length=1, max_length=60)
+    message: str = Field(min_length=1, max_length=1000)
+
+
+class LineLinkRequest(BaseModel):
+    code: str = Field(min_length=6, max_length=64)

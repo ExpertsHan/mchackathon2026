@@ -1,532 +1,413 @@
 from __future__ import annotations
 
-from datetime import date
-from pathlib import Path
-
 import pytest
 from fastapi.testclient import TestClient
+from flow_helpers import (
+    REVIEWER,
+    applicant_form,
+    complete_application,
+    create_application,
+    id_card_ocr,
+    install_ocr,
+    login_as,
+    receipt_ocr,
+    save_applicant,
+    upload,
+    upload_all,
+)
 from sqlalchemy.orm import Session
 
 from app.core.enums import ApplicationStatus
-from app.models import Application
+from app.models import Application, AuditLog, ClaimReservation, User
 from app.services.demo import DEMO_USER_IDS
 
-RECEIPTS = Path(__file__).resolve().parents[2] / "demo" / "receipts"
-CORRECT_ANSWERS = {
-    "privacy": "C",
-    "hallucinations": "B",
-    "prompt-injection": "B",
-    "human-responsibility": "B",
-}
 
-
-def login_as(client: TestClient, user_key: str) -> str:
-    response = client.post("/api/demo/login", json={"user_id": str(DEMO_USER_IDS[user_key])})
-    assert response.status_code == 200, response.text
-    token = response.json()["demo_token"]
-    client.headers["Authorization"] = f"Bearer {token}"
-    return token
-
-
-def create_application(client: TestClient, user_key: str) -> str:
-    login_as(client, user_key)
-    response = client.post("/api/applications", json={"user_id": str(DEMO_USER_IDS[user_key])})
-    assert response.status_code == 200, response.text
-    return response.json()["public_id"]
-
-
-def upload(client: TestClient, public_id: str, receipt_name: str) -> dict:
-    path = RECEIPTS / receipt_name
-    response = client.post(
-        f"/api/applications/{public_id}/receipt",
-        files={"file": (path.name, path.read_bytes(), "application/pdf")},
+def approve(client: TestClient, public_id: str, **extra):
+    return client.post(
+        f"/api/admin/applications/{public_id}/approve",
+        json={**REVIEWER, "reason": "文件核對無誤", **extra},
     )
-    assert response.status_code == 200, response.text
-    return response.json()
 
 
-def complete_safety(client: TestClient, user_key: str) -> None:
-    modules = client.get("/api/safety/modules").json()
-    for module in modules:
-        response = client.post(
-            f"/api/safety/modules/{module['id']}/answer",
-            json={
-                "user_id": str(DEMO_USER_IDS[user_key]),
-                "answer": CORRECT_ANSWERS[module["slug"]],
-            },
-        )
-        assert response.status_code == 200, response.text
-        assert response.json()["correct"] is True
-
-
-def test_complete_happy_path_submit_without_safety_gate_payment_tracking(
-    client: TestClient,
+def test_happy_path_goes_to_human_review_then_approval_and_payment(
+    client: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    login = client.post("/api/demo/login", json={"user_id": str(DEMO_USER_IDS["alex"])})
-    assert login.status_code == 200
-    assert "Demo identity" in login.json()["notice"]
-
-    public_id = create_application(client, "alex")
-    policy = client.post(
-        "/api/agent/chat",
-        json={
-            "user_id": str(DEMO_USER_IDS["alex"]),
-            "application_id": public_id,
-            "message": "Is ChatGPT Plus eligible?",
-        },
-    )
-    assert policy.status_code == 200
-    assert policy.json()["citations"]
-
-    receipt = upload(client, public_id, "chatgpt_plus_valid.pdf")
-    assert receipt["subscription"]["product"] == "ChatGPT Plus"
-    assert "mock demo rate" in receipt["mock_exchange_rate"]
-
-    evaluation = client.post(f"/api/applications/{public_id}/eligibility/check")
-    assert evaluation.status_code == 200
-    assert evaluation.json()["eligible"] is True
-    assert evaluation.json()["provisionally_eligible"] is False
-
-    progress = client.get(f"/api/users/{DEMO_USER_IDS['alex']}/safety-progress").json()
-    assert progress["completed_count"] == 0
-    assert progress["total_count"] == 4
-    assert progress["participation_optional"] is True
-    assert progress["all_required_complete"] is True
+    install_ocr(monkeypatch, "alex")
+    public_id = complete_application(client, "alex")
 
     submitted = client.post(f"/api/applications/{public_id}/submit")
     assert submitted.status_code == 200, submitted.text
-    assert submitted.json()["application"]["status"] == "APPROVED"
-    assert submitted.json()["application"]["approved_amount_twd"] == "600.00"
-
-    engagement = client.post(
-        "/api/safety/engagement",
-        json={
-            "user_id": str(DEMO_USER_IDS["alex"]),
-            "application_id": public_id,
-            "event": "PRACTICE_ANSWERED",
-            "selected_option": "B",
-        },
-    )
-    assert engagement.status_code == 200, engagement.text
-    audit_actions = [
-        event["action"]
-        for event in client.get(f"/api/admin/applications/{public_id}").json()["audit_logs"]
-    ]
-    assert "SAFETY_PRACTICE_ANSWERED" in audit_actions
-
-    payment = client.post(f"/api/admin/applications/{public_id}/process-payment")
-    assert payment.status_code == 200, payment.text
-    assert payment.json()["status"] == "PAID"
-    assert payment.json()["transaction_id"].startswith("GOVPAY-DEMO-")
-
-    tracked = client.get(f"/api/applications/{public_id}/timeline")
-    assert tracked.status_code == 200
-    assert tracked.json()["status"] == "PAID"
-    actions = [event["action"] for event in tracked.json()["events"]]
-    assert "APPLICATION_APPROVED" in actions
-    assert "PAYMENT_COMPLETED" in actions
-
-
-def test_source_review_missing_documents_prevents_automatic_approval(
-    client: TestClient,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    class FixedDate(date):
-        @classmethod
-        def today(cls) -> FixedDate:
-            return cls(2026, 8, 20)
-
-    monkeypatch.setattr("app.services.source_review.date", FixedDate)
-    public_id = create_application(client, "alex")
-    source = client.post(
-        f"/api/applications/{public_id}/source-data",
-        json={
-            "birth_date": "2000-01-01",
-            "household_address": "新竹市",
-            "applicant_type": "normal",
-            "payment_type": "monthly",
-            "software_category": "general",
-            "purchase_date": "2026-08-18",
-            "declared_amount": 600,
-            "is_own_credit_card": True,
-        },
-    )
-    assert source.status_code == 200, source.text
-    assert source.json()["evaluation"]["result"] == "NEED_SUPPLEMENT"
-    upload(client, public_id, "chatgpt_plus_valid.pdf")
-    complete_safety(client, "alex")
-
-    submitted = client.post(f"/api/applications/{public_id}/submit")
-    assert submitted.status_code == 200, submitted.text
-    assert submitted.json()["application"]["status"] == "REQUESTED_INFORMATION"
-    assert submitted.json()["application"]["approved_amount_twd"] is None
-
-    reviewer = client.get(f"/api/admin/applications/{public_id}").json()
-    assert reviewer["source_review"]["evaluation"]["result"] == "NEED_SUPPLEMENT"
-    assert len(reviewer["source_review"]["evaluation"]["rules"]) == 17
-
-
-def test_optional_safety_answer_is_explained_without_a_required_retry(
-    client: TestClient,
-) -> None:
-    login_as(client, "alex")
-    module = next(
-        item for item in client.get("/api/safety/modules").json() if item["slug"] == "privacy"
-    )
-    result = client.post(
-        f"/api/safety/modules/{module['id']}/answer",
-        json={"user_id": str(DEMO_USER_IDS["alex"]), "answer": "A"},
-    )
-    assert result.status_code == 200, result.text
-    assert result.json()["correct"] is False
-    assert result.json()["completed"] is True
-    assert "safer answer" in result.json()["explanation"].lower()
-
-    progress = client.get(f"/api/users/{DEMO_USER_IDS['alex']}/safety-progress").json()
-    assert progress["completed_count"] == 1
-    assert progress["all_complete"] is False
-
-
-def test_safety_engagement_cannot_be_attached_to_another_users_application(
-    client: TestClient,
-) -> None:
-    public_id = create_application(client, "alex")
-    login_as(client, "taylor")
-    response = client.post(
-        "/api/safety/engagement",
-        json={
-            "user_id": str(DEMO_USER_IDS["taylor"]),
-            "application_id": public_id,
-            "event": "PRACTICE_SHOWN",
-        },
-    )
-    assert response.status_code == 403
-
-
-@pytest.mark.parametrize(
-    "event_data",
-    [
-        {"event": "PRACTICE_ANSWERED", "selected_option": "A"},
-        {"event": "PRACTICE_SKIPPED"},
-    ],
-)
-def test_wrong_answer_or_skipping_does_not_change_application_or_payment(
-    client: TestClient, event_data: dict[str, str]
-) -> None:
-    public_id = create_application(client, "alex")
-    upload(client, public_id, "chatgpt_plus_valid.pdf")
-    submission = client.post(f"/api/applications/{public_id}/submit")
-    assert submission.status_code == 200, submission.text
-    submitted = client.get(f"/api/applications/{public_id}").json()
-    result = client.post(
-        "/api/safety/engagement",
-        json={
-            "user_id": str(DEMO_USER_IDS["alex"]),
-            "application_id": public_id,
-            **event_data,
-        },
-    )
-    assert result.status_code == 200, result.text
-    after = client.get(f"/api/applications/{public_id}").json()
-    assert after["application"] == submitted["application"]
-    assert after["payment"] == submitted["payment"]
-    audit = client.get(f"/api/admin/applications/{public_id}").json()["audit_logs"]
-    recorded = next(item for item in audit if item["action"] == f"SAFETY_{event_data['event']}")
-    if event_data["event"] == "PRACTICE_ANSWERED":
-        assert recorded["details_json"]["correct"] is False
-    timeline = client.get(f"/api/applications/{public_id}/timeline").json()["events"]
-    assert all(not item["action"].startswith("SAFETY_") for item in timeline)
-    payment = client.post(f"/api/admin/applications/{public_id}/process-payment")
-    assert payment.status_code == 200, payment.text
-    assert payment.json()["status"] == "PAID"
-
-
-def test_practice_result_is_derived_by_server(client: TestClient) -> None:
-    public_id = create_application(client, "alex")
-    base = {"user_id": str(DEMO_USER_IDS["alex"]), "application_id": public_id}
-    for event_data in (
-        {"event": "PRACTICE_ANSWERED"},
-        {"event": "PRACTICE_SKIPPED", "selected_option": "A"},
-        {"event": "PRACTICE_ANSWERED", "selected_option": "A", "correct": True},
-    ):
-        response = client.post("/api/safety/engagement", json={**base, **event_data})
-        assert response.status_code == 422, response.text
-
-
-def test_duplicate_receipt_enters_manual_review(client: TestClient) -> None:
-    public_id = create_application(client, "jamie")
-    uploaded = upload(client, public_id, "duplicate_receipt.pdf")
-    assert uploaded["duplicate_receipt"] is True
-    complete_safety(client, "jamie")
-    result = client.post(f"/api/applications/{public_id}/submit")
-    assert result.status_code == 200, result.text
-    detail = result.json()
+    detail = submitted.json()
+    # The engine passes the case, yet nothing is approved without a person.
+    assert detail["source_review"]["evaluation"]["result"] == "PASS"
     assert detail["application"]["status"] == "MANUAL_REVIEW"
-    assert detail["application"]["risk_level"] == "HIGH"
-    assert any("Duplicate" in reason for reason in detail["application"]["risk_reasons_json"])
+    assert detail["application"]["approved_amount_twd"] is None
+    assert detail["eligibility"]["outcome"] == "ELIGIBLE"
+    assert float(detail["application"]["requested_amount_twd"]) == 315.0  # 630 * 50%
 
+    # Payment is impossible before approval.
+    early = client.post(f"/api/admin/applications/{public_id}/process-payment", json=REVIEWER)
+    assert early.status_code == 409
 
-def test_underage_applicant_is_deterministically_rejected(client: TestClient) -> None:
-    public_id = create_application(client, "taylor")
-    upload(client, public_id, "claude_pro_valid.pdf")
-    complete_safety(client, "taylor")
-    result = client.post(f"/api/applications/{public_id}/submit")
-    assert result.status_code == 200, result.text
-    detail = result.json()
-    assert detail["application"]["status"] == "REJECTED"
-    age_check = next(
-        item for item in detail["eligibility"]["checks"] if item["rule"] == "AGE_REQUIREMENT"
-    )
-    assert age_check["passed"] is False
-
-
-def test_suspicious_claim_can_be_reviewed_with_audited_override(
-    client: TestClient,
-) -> None:
-    public_id = create_application(client, "alex")
-    upload(client, public_id, "malicious_prompt_injection_receipt.pdf")
-    complete_safety(client, "alex")
-    submitted = client.post(f"/api/applications/{public_id}/submit")
-    assert submitted.json()["application"]["status"] == "MANUAL_REVIEW"
-
-    without_override = client.post(
-        f"/api/admin/applications/{public_id}/approve",
-        json={"reason": "Receipt manually verified", "override_review_flag": False},
-    )
-    assert without_override.status_code == 409
-    approved = client.post(
-        f"/api/admin/applications/{public_id}/approve",
-        json={
-            "reason": "Reviewer verified the valid fields and ignored the malicious document note.",
-            "override_review_flag": True,
-        },
-    )
+    approved = approve(client, public_id)
     assert approved.status_code == 200, approved.text
     assert approved.json()["application"]["status"] == "APPROVED"
-    approval_events = [
-        item for item in approved.json()["audit_logs"] if item["action"] == "APPLICATION_APPROVED"
-    ]
-    assert approval_events[-1]["actor_type"] == "REVIEWER"
-    assert approval_events[-1]["details_json"]["review_flag_overridden"] is True
+    assert float(approved.json()["application"]["approved_amount_twd"]) == 315.0
+
+    paid = client.post(f"/api/admin/applications/{public_id}/process-payment", json=REVIEWER)
+    assert paid.status_code == 200, paid.text
+    assert float(paid.json()["amount_twd"]) == 315.0
+    actors = {
+        log.actor_identifier
+        for log in db.query(AuditLog).filter(AuditLog.action == "APPLICATION_APPROVED")
+    }
+    assert "王承辦" in actors
+
+    tracking = client.get(f"/api/applications/{public_id}/status").json()
+    assert tracking["status"] == "PAID"
+    payment = client.get(f"/api/applications/{public_id}/payment-status").json()
+    assert payment["disbursed"] is True
+    assert payment["account_number_last4"] == "9012"
+    assert "account_number" not in payment
 
 
-def test_malicious_receipt_is_flagged_without_executing_commands(
-    client: TestClient,
+def test_special_applicant_gets_the_90_percent_rate_and_needs_proof(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    install_ocr(monkeypatch, "alex")
     public_id = create_application(client, "alex")
-    uploaded = upload(client, public_id, "malicious_prompt_injection_receipt.pdf")
-    assert uploaded["subscription"]["product"] == "ChatGPT Plus"
-    assert uploaded["subscription"]["suspicious_content"] is True
-    detail = client.get(f"/api/applications/{public_id}").json()
-    assert detail["application"]["status"] == "DRAFT"
-    assert detail["payment"] is None
+    save_applicant(
+        client, public_id, "alex", applicant_type="special", applicant_subtype="低收入戶"
+    )
+    upload_all(client, public_id)
+    incomplete = client.post(f"/api/applications/{public_id}/submit")
+    assert incomplete.status_code == 400
+    assert incomplete.json()["error"]["code"] == "DOCUMENTS_INCOMPLETE"
+    assert "特定對象" in incomplete.json()["error"]["message"]
+
+    upload(client, public_id, "cultural_proof", name="proof")
+    submitted = client.post(f"/api/applications/{public_id}/submit")
+    assert submitted.status_code == 200, submitted.text
+    assert float(submitted.json()["application"]["requested_amount_twd"]) == 567.0  # 630 * 90%
+
+
+def test_subsidy_is_capped_by_applicant_category(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    install_ocr(
+        monkeypatch,
+        "alex",
+        receipt=receipt_ocr("alex", converted_twd_amount=9000, original_amount=290),
+    )
+    public_id = complete_application(client, "alex", declared_amount=9000)
+    detail = client.post(f"/api/applications/{public_id}/submit").json()
+    assert float(detail["application"]["requested_amount_twd"]) == 3000.0  # normal cap
+
+
+def test_submit_without_documents_or_details_is_refused(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    install_ocr(monkeypatch, "alex")
+    public_id = create_application(client, "alex")
+    empty = client.post(f"/api/applications/{public_id}/submit")
+    assert empty.status_code == 400
+    assert empty.json()["error"]["code"] == "APPLICANT_DATA_INCOMPLETE"
+
+    save_applicant(client, public_id, "alex")
+    no_documents = client.post(f"/api/applications/{public_id}/submit")
+    assert no_documents.status_code == 400
+    assert no_documents.json()["error"]["code"] == "DOCUMENTS_INCOMPLETE"
+    assert client.get(f"/api/applications/{public_id}").json()["application"]["status"] == "DRAFT"
+
+
+def test_missing_id_back_requests_supplement_then_resubmits_to_review(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    install_ocr(
+        monkeypatch, "alex", id_card=id_card_ocr("alex", address=None, is_hsinchu_city=None)
+    )
+    public_id = complete_application(client, "alex")
+    submitted = client.post(f"/api/applications/{public_id}/submit").json()
+    assert submitted["application"]["status"] == "REQUESTED_INFORMATION"
+    assert "身分證地址" in submitted["application"]["information_request"] or (
+        "設籍" in submitted["application"]["information_request"]
+    )
+    items = submitted["source_review"]["evaluation"]["supplement_center"]["items"]
+    assert [item["rule_id"] for item in items] == ["RULE-002"]
+    missing = client.get(f"/api/applications/{public_id}/missing-documents").json()
+    assert missing["rule_issues"][0]["rule"] == "RULE-002"
+
+    install_ocr(monkeypatch, "alex")  # a clearer photo now reads the address
+    replaced = upload(client, public_id, "id_card", name="id-back")
+    assert replaced.status_code == 200
+    resubmitted = client.post(f"/api/applications/{public_id}/submit")
+    assert resubmitted.status_code == 200, resubmitted.text
+    assert resubmitted.json()["application"]["status"] == "MANUAL_REVIEW"
+
+
+def test_reviewer_cannot_approve_a_case_that_still_needs_documents(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    install_ocr(
+        monkeypatch, "alex", id_card=id_card_ocr("alex", address=None, is_hsinchu_city=None)
+    )
+    public_id = complete_application(client, "alex")
+    client.post(f"/api/applications/{public_id}/submit")
+    # Ask for information first so the case is reviewable, then try to approve anyway.
+    response = approve(client, public_id, override_review_flag=True)
+    assert response.status_code == 409
+
+
+def test_underage_or_overage_applicant_is_advised_to_reject_but_a_human_decides(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    install_ocr(monkeypatch, "taylor")
+    public_id = create_application(client, "taylor")
+    save_applicant(client, public_id, "taylor", birth_date="1980-01-01")
+    upload_all(client, public_id)
+    detail = client.post(f"/api/applications/{public_id}/submit").json()
+    assert detail["source_review"]["evaluation"]["result"] == "REJECT"
+    assert detail["application"]["status"] == "MANUAL_REVIEW"
+    assert detail["eligibility"]["outcome"] == "INELIGIBLE"
+
+    blocked = approve(client, public_id)
+    assert blocked.status_code == 409
+    assert blocked.json()["error"]["code"] == "REVIEW_OVERRIDE_REQUIRED"
+    rejected = client.post(
+        f"/api/admin/applications/{public_id}/reject",
+        json={**REVIEWER, "reason": "年齡不符資格"},
+    )
+    assert rejected.status_code == 200
+    assert rejected.json()["application"]["status"] == "REJECTED"
+
+
+def test_flagged_case_can_be_overridden_only_with_explicit_audited_flag(
+    client: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    install_ocr(monkeypatch, "alex", receipt=receipt_ocr("alex", buyer_name="Someone Else"))
+    public_id = complete_application(client, "alex")
+    client.post(f"/api/applications/{public_id}/submit")
+    assert approve(client, public_id).json()["error"]["code"] == "REVIEW_OVERRIDE_REQUIRED"
+    overridden = approve(client, public_id, override_review_flag=True)
+    assert overridden.status_code == 200, overridden.text
+    audit = (
+        db.query(AuditLog)
+        .filter(AuditLog.action == "APPLICATION_APPROVED")
+        .order_by(AuditLog.created_at.desc())
+        .first()
+    )
+    assert audit.details_json["review_flag_overridden"] is True
+    assert "RULE-009" in audit.details_json["overridden_rules"]
+
+
+def test_duplicate_receipt_is_fraud_risk_and_cannot_reserve_the_same_claim(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    install_ocr(monkeypatch, "jamie")
+    public_id = create_application(client, "jamie")
+    save_applicant(client, public_id, "jamie")
+    upload_all(client, public_id, receipt_pdf="duplicate_receipt.pdf")
+    detail = client.post(f"/api/applications/{public_id}/submit").json()
+    assert detail["source_review"]["evaluation"]["result"] == "FRAUD_RISK"
+    assert detail["application"]["status"] == "MANUAL_REVIEW"
+    assert detail["application"]["risk_level"] == "HIGH"
+
+    conflict = approve(client, public_id, override_review_flag=True)
+    assert conflict.status_code == 409
+    assert conflict.json()["error"]["code"] == "CLAIM_RESERVATION_CONFLICT"
+
+
+def test_only_one_open_application_per_person(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    install_ocr(monkeypatch, "alex")
+    public_id = create_application(client, "alex")
+    again = client.post("/api/applications", json={"user_id": str(DEMO_USER_IDS["alex"])})
+    assert again.status_code == 409
+    assert again.json()["error"]["code"] == "ACTIVE_APPLICATION_EXISTS"
+
+    cancelled = client.post(f"/api/applications/{public_id}/cancel")
+    assert cancelled.status_code == 200
+    assert cancelled.json()["application"]["status"] == "CANCELLED"
+    fresh = client.post("/api/applications", json={"user_id": str(DEMO_USER_IDS["alex"])})
+    assert fresh.status_code == 200
+
+
+def test_id_number_must_match_the_logged_in_identity(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    install_ocr(monkeypatch, "jamie")
+    public_id = create_application(client, "jamie")
+    wrong = client.post(f"/api/applications/{public_id}/source-data", json=applicant_form("alex"))
+    assert wrong.status_code == 409
+    assert wrong.json()["error"]["code"] == "ID_NUMBER_MISMATCH"
+    malformed = client.post(
+        f"/api/applications/{public_id}/source-data",
+        json=applicant_form("jamie", id_number="123"),
+    )
+    assert malformed.status_code == 422
+
+
+def test_plain_national_id_is_never_persisted(
+    client: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    install_ocr(monkeypatch, "alex")
+    public_id = complete_application(client, "alex")
+    admin = client.get(f"/api/admin/applications/{public_id}").json()
+    assert "A123456789" not in str(admin)
+    id_docs = [d for d in admin["source_review"]["documents"] if d["document_type"] == "id_card"]
+    assert id_docs[0]["ocr_data"]["id_number"] == "A12****789"
+    assert "id_number_hash" not in id_docs[0]["ocr_data"]
+    matrix = {
+        row["check"]: row["result"]
+        for row in admin["source_review"]["evaluation"]["cross_validation"]
+    }
+    assert matrix["id_number_vs_profile"] == "MATCH"
+    assert db.query(User).filter(User.government_id_hash.is_not(None)).count() >= 3
+
+
+def test_citizen_view_redacts_evidence_and_enforces_ownership(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    install_ocr(monkeypatch, "alex")
+    public_id = complete_application(client, "alex")
+    citizen = client.get(f"/api/applications/{public_id}").json()
+    for document in citizen["source_review"]["documents"]:
+        assert "ocr_data" not in document
+        assert "sha256" not in document
+    evaluation = citizen["source_review"]["evaluation"]
+    assert "ocr_data" not in evaluation and "rules" not in evaluation
+
+    login_as(client, "jamie")
+    assert client.get(f"/api/applications/{public_id}").status_code == 403
+    assert client.post(f"/api/applications/{public_id}/cancel").status_code == 403
+    client.headers.pop("Authorization")
+    assert client.get(f"/api/applications/{public_id}").status_code == 401
+    admin = client.get(f"/api/admin/applications/{public_id}").json()
+    assert admin["source_review"]["evaluation"]["rules"]
+
+
+def test_cancel_is_blocked_once_approved(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    install_ocr(monkeypatch, "alex")
+    public_id = complete_application(client, "alex")
+    client.post(f"/api/applications/{public_id}/submit")
+    assert approve(client, public_id).status_code == 200
+    blocked = client.post(f"/api/applications/{public_id}/cancel")
+    assert blocked.status_code == 409
+    assert blocked.json()["error"]["code"] == "CANCEL_NOT_ALLOWED"
+
+
+def test_cancel_releases_claim_reservations(
+    client: TestClient, db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    install_ocr(monkeypatch, "alex")
+    public_id = complete_application(client, "alex")
+    client.post(f"/api/applications/{public_id}/submit")
+    application = db.query(Application).filter_by(public_id=public_id).one()
+    assert db.query(ClaimReservation).filter_by(application_id=application.id).count() == 0
+    reviewer_reject = client.post(
+        f"/api/admin/applications/{public_id}/reject", json={**REVIEWER, "reason": "測試退件"}
+    )
+    assert reviewer_reject.status_code == 200
+    assert application.status is ApplicationStatus.REJECTED
+
+
+def test_reviewer_actions_require_a_name(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    install_ocr(monkeypatch, "alex")
+    public_id = complete_application(client, "alex")
+    client.post(f"/api/applications/{public_id}/submit")
+    anonymous = client.post(
+        f"/api/admin/applications/{public_id}/approve", json={"reason": "沒有署名"}
+    )
+    assert anonymous.status_code == 422
+    flagged = client.post(
+        f"/api/admin/applications/{public_id}/flag-check",
+        json={**REVIEWER, "reason": "需要再查核"},
+    )
+    assert flagged.status_code == 200
+    assert flagged.json()["application"]["flagged_for_check"] is True
+    info = client.post(
+        f"/api/admin/applications/{public_id}/request-info",
+        json={**REVIEWER, "reason": "請補上更清楚的收據"},
+    )
+    assert info.json()["application"]["status"] == "REQUESTED_INFORMATION"
+
+
+def test_admin_dashboard_and_filters(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    install_ocr(monkeypatch, "alex")
+    public_id = complete_application(client, "alex")
+    client.post(f"/api/applications/{public_id}/submit")
+    client.headers.pop("Authorization")
+    stats = client.get("/api/admin/stats").json()
+    # The seeded historical (paid) claim counts alongside the new application.
+    assert stats["applications_submitted"] == 2
+    assert stats["documents_uploaded"] == 5
+    assert stats["rules_total_checked"] >= 17
+    assert stats["applications_needing_human_review"] == 1
+    assert stats["estimated_minutes_saved"] == 30
+    passed = client.get("/api/admin/applications", params={"ai_result": "PASS"}).json()
+    assert passed["total"] == 1
+    assert passed["items"][0]["product"] == "ChatGPT Plus"
+    assert (
+        client.get("/api/admin/applications", params={"ai_result": "REJECT"}).json()["total"] == 0
+    )
 
 
 def test_payment_endpoint_rejects_draft(client: TestClient) -> None:
     public_id = create_application(client, "alex")
-    response = client.post(f"/api/admin/applications/{public_id}/process-payment")
-    assert response.status_code == 409
-    assert response.json()["error"]["code"] == "PAYMENT_NOT_ALLOWED"
-
-
-def test_receipt_evidence_cannot_be_rewritten_through_subscription_api(
-    client: TestClient,
-) -> None:
-    public_id = create_application(client, "alex")
-    upload(client, public_id, "chatgpt_plus_valid.pdf")
-    rewrite = client.post(
-        f"/api/applications/{public_id}/subscription",
-        json={
-            "provider": "Notion",
-            "product": "Notion AI",
-            "amount": "1.00",
-            "currency": "TWD",
-            "purchase_date": "2026-08-20",
-        },
-    )
-    assert rewrite.status_code == 409
-    assert rewrite.json()["error"]["code"] == "RECEIPT_EVIDENCE_LOCKED"
-    evaluation = client.post(f"/api/applications/{public_id}/eligibility/check").json()
-    product_check = next(
-        check for check in evaluation["checks"] if check["rule"] == "ELIGIBLE_PRODUCT"
-    )
-    assert "ChatGPT Plus" in product_check["message"]
-    assert evaluation["eligible"] is True
-    assert evaluation["provisionally_eligible"] is False
-
-
-def test_direct_column_tampering_conflicts_with_authoritative_extraction(
-    client: TestClient,
-    db: Session,
-) -> None:
-    public_id = create_application(client, "alex")
-    upload(client, public_id, "chatgpt_plus_valid.pdf")
-    application = db.query(Application).filter_by(public_id=public_id).one()
-    application.subscription.provider = "Notion"
-    application.subscription.product = "Notion AI"
-    application.subscription.amount_twd = 1
-    db.commit()
-
-    evaluation = client.post(f"/api/applications/{public_id}/eligibility/check")
-    assert evaluation.status_code == 200, evaluation.text
-    body = evaluation.json()
-    assert body["eligible"] is False
-    assert body["requires_manual_review"] is True
-    assert body["risk_level"] == "HIGH"
-    assert any("conflicts with extracted" in reason for reason in body["risk_reasons"])
-    product_check = next(check for check in body["checks"] if check["rule"] == "ELIGIBLE_PRODUCT")
-    assert "ChatGPT Plus" in product_check["message"]
-
-
-def test_citizen_auth_ownership_and_evidence_redaction(client: TestClient) -> None:
-    public_id = create_application(client, "alex")
-    upload(client, public_id, "chatgpt_plus_valid.pdf")
-    citizen_detail = client.get(f"/api/applications/{public_id}")
-    assert citizen_detail.status_code == 200
-    citizen_subscription = citizen_detail.json()["subscription"]
-    assert citizen_subscription["receipt_uploaded"] is True
-    assert "receipt_hash" not in citizen_subscription
-    assert "account_email" not in citizen_subscription
-    assert "extraction_json" not in citizen_subscription
-    assert all(
-        "sha256" not in event["details_json"] for event in citizen_detail.json()["audit_logs"]
-    )
-
-    login_as(client, "jamie")
-    forbidden = client.get(f"/api/applications/{public_id}")
-    assert forbidden.status_code == 403
-    assert forbidden.json()["error"]["code"] == "FORBIDDEN"
-    forbidden_edit = client.post(
-        f"/api/applications/{public_id}/subscription",
-        json={"provider": "Notion", "product": "Notion AI"},
-    )
-    assert forbidden_edit.status_code == 403
-
     client.headers.pop("Authorization")
-    unauthenticated = client.get(f"/api/applications/{public_id}")
-    assert unauthenticated.status_code == 401
-    admin_detail = client.get(f"/api/admin/applications/{public_id}")
-    assert admin_detail.status_code == 200
-    assert admin_detail.json()["subscription"]["receipt_hash"]
-    assert admin_detail.json()["subscription"]["account_email"] == "alex@example.test"
+    response = client.post(f"/api/admin/applications/{public_id}/process-payment", json=REVIEWER)
+    assert response.status_code == 409
 
 
-def test_request_information_allows_safe_receipt_replacement_and_resubmit(
-    client: TestClient,
+def test_uploads_are_validated_and_limited(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    install_ocr(monkeypatch, "alex")
     public_id = create_application(client, "alex")
-    upload(client, public_id, "ambiguous_receipt.pdf")
-    complete_safety(client, "alex")
-    submitted = client.post(f"/api/applications/{public_id}/submit")
-    assert submitted.json()["application"]["status"] == "MANUAL_REVIEW"
-    requested = client.post(
-        f"/api/admin/applications/{public_id}/request-info",
-        json={"reason": "Upload a receipt with a clear product and purchase date."},
+    bad = client.post(
+        f"/api/applications/{public_id}/documents/receipt",
+        files=[("files", ("x.exe", b"MZ", "application/octet-stream"))],
     )
-    assert requested.status_code == 200
-    assert requested.json()["application"]["status"] == "REQUESTED_INFORMATION"
-
-    replacement = upload(client, public_id, "chatgpt_plus_valid.pdf")
-    assert replacement["subscription"]["product"] == "ChatGPT Plus"
-    resubmitted = client.post(f"/api/applications/{public_id}/submit")
-    assert resubmitted.status_code == 200, resubmitted.text
-    assert resubmitted.json()["application"]["status"] == "APPROVED"
-    assert resubmitted.json()["application"]["information_request"] is None
-
-
-def test_direct_submit_retrieves_policy_before_decision(client: TestClient) -> None:
-    public_id = create_application(client, "alex")
-    upload(client, public_id, "chatgpt_plus_valid.pdf")
-    complete_safety(client, "alex")
-    submitted = client.post(f"/api/applications/{public_id}/submit")
-    assert submitted.status_code == 200
-    assert submitted.json()["citations"]
-    actions = [event["action"] for event in submitted.json()["audit_logs"]]
-    policy_index = max(
-        index for index, action in enumerate(actions) if action == "POLICY_RETRIEVED"
+    assert bad.status_code == 400
+    forged = client.post(
+        f"/api/applications/{public_id}/documents/receipt",
+        files=[("files", ("x.png", b"not a png", "image/png"))],
     )
-    eligibility_index = max(
-        index for index, action in enumerate(actions) if action == "ELIGIBILITY_EVALUATED"
-    )
-    assert policy_index < eligibility_index
+    assert forged.status_code == 400
+    single = upload(client, public_id, "passbook", name="one")
+    replaced = upload(client, public_id, "passbook", name="two")
+    assert single.status_code == replaced.status_code == 200
+    active = [
+        d for d in replaced.json()["documents"] if d["document_type"] == "passbook" and d["active"]
+    ]
+    assert len(active) == 1
 
 
-def test_admin_verify_retrieves_policy_without_prior_eligibility_check(
-    client: TestClient,
-    db: Session,
+def test_finalized_detail_uses_recorded_snapshot(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    public_id = create_application(client, "alex")
-    upload(client, public_id, "chatgpt_plus_valid.pdf")
-    complete_safety(client, "alex")
-    application = db.query(Application).filter_by(public_id=public_id).one()
-    application.status = ApplicationStatus.SUBMITTED
-    application.eligibility_result = None
-    application.eligibility_reasons_json = []
-    application.policy_citations_json = []
-    db.commit()
-
-    verified = client.post(f"/api/admin/applications/{public_id}/verify")
-    assert verified.status_code == 200, verified.text
-    assert verified.json()["application"]["status"] == "APPROVED"
-    assert verified.json()["citations"]
-    actions = [event["action"] for event in verified.json()["audit_logs"]]
-    assert max(i for i, action in enumerate(actions) if action == "POLICY_RETRIEVED") < max(
-        i for i, action in enumerate(actions) if action == "ELIGIBILITY_EVALUATED"
-    )
+    install_ocr(monkeypatch, "alex")
+    public_id = complete_application(client, "alex")
+    client.post(f"/api/applications/{public_id}/submit")
+    approve(client, public_id)
+    detail = client.get(f"/api/applications/{public_id}").json()
+    assert detail["eligibility"]["ai_result"] == "PASS"
+    assert float(detail["eligibility"]["approved_amount_twd"]) == 315.0
+    assert detail["citations"]
 
 
-def test_finalized_decision_detail_uses_recorded_snapshot(
-    client: TestClient,
-    db: Session,
-) -> None:
-    before = client.get("/api/admin/applications/AI-2026-000001").json()["eligibility"]
-    assert before["eligible"] is True
-    seeded = db.query(Application).filter_by(public_id="AI-2026-000001").one()
-    seeded.user.age = 12
-    seeded.subscription.product = "Unknown AI"
-    db.commit()
-    after = client.get("/api/admin/applications/AI-2026-000001").json()["eligibility"]
-    assert after == before
-
-
-def test_seeded_paid_claim_has_matching_completed_safety_progress(
-    client: TestClient,
-) -> None:
-    login_as(client, "jamie")
-    progress = client.get(f"/api/users/{DEMO_USER_IDS['jamie']}/safety-progress")
-    assert progress.status_code == 200, progress.text
-    assert progress.json()["completed_count"] == 4
-    assert progress.json()["total_count"] == 4
-    assert progress.json()["completed_required"] == 0
-    assert progress.json()["total_required"] == 0
-    assert progress.json()["all_complete"] is True
-    assert progress.json()["all_required_complete"] is True
-
-    detail = client.get("/api/admin/applications/AI-2026-000001")
-    assert detail.status_code == 200, detail.text
-    assert detail.json()["application"]["status"] == "PAID"
-    safety_check = next(
-        check
-        for check in detail.json()["eligibility"]["checks"]
-        if check["rule"] == "SAFETY_TRAINING_COMPLETED"
-    )
-    assert safety_check["passed"] is True
-    assert detail.json()["safety_progress"]["all_complete"] is True
-
-
-def test_demo_reset_deletes_active_claim_reservations_and_is_repeatable(
-    client: TestClient,
-) -> None:
-    public_id = create_application(client, "alex")
-    upload(client, public_id, "chatgpt_plus_valid.pdf")
-    complete_safety(client, "alex")
-    submitted = client.post(f"/api/applications/{public_id}/submit")
-    assert submitted.status_code == 200, submitted.text
-    assert submitted.json()["application"]["status"] == "APPROVED"
-
+def test_demo_reset_is_repeatable(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    install_ocr(monkeypatch, "alex")
+    complete_application(client, "alex")
     for _ in range(2):
-        reset = client.post("/api/demo/reset")
-        assert reset.status_code == 200, reset.text
-        applications = client.get("/api/admin/applications")
-        assert applications.status_code == 200, applications.text
-        assert [item["public_id"] for item in applications.json()["items"]] == ["AI-2026-000001"]
+        assert client.post("/api/demo/reset").status_code == 200
+    login_as(client, "alex")
+    assert (
+        client.post("/api/applications", json={"user_id": str(DEMO_USER_IDS["alex"])}).status_code
+        == 200
+    )

@@ -15,8 +15,10 @@ import type {
   SafetyEngagementEvent,
   SafetyModuleData,
   SafetyProgress,
-  Subscription,
-  SourceReview, SourceApplicant, SourceDocumentType,
+  SourceReview,
+  SourceApplicant,
+  SourceDocumentType,
+  ApplicationStatusInfo,
   TimelineEvent,
 } from "@/lib/types";
 import { readDemoToken } from "@/lib/demo-auth";
@@ -61,6 +63,7 @@ function normalizeEligibility(value: unknown): EligibilityResult | null {
     checks: Array.isArray(value.checks) ? value.checks as EligibilityResult["checks"] : [],
     risk_level: (value.risk_level as EligibilityResult["risk_level"]) ?? "LOW",
     risk_reasons: Array.isArray(value.risk_reasons) ? value.risk_reasons as string[] : [],
+    ai_result: (value.ai_result as EligibilityResult["ai_result"]) ?? null,
   };
 }
 
@@ -96,7 +99,6 @@ function normalizeApplication(value: unknown): Application {
     ...application,
     applicant: isRecord(detail.applicant) ? detail.applicant as unknown as DemoUser : application.applicant,
     user: isRecord(detail.applicant) ? detail.applicant as unknown as DemoUser : application.user,
-    subscription: isRecord(detail.subscription) ? detail.subscription as unknown as Subscription : application.subscription,
     eligibility_result: eligibility ?? application.eligibility_result,
     policy_citations: Array.isArray(detail.citations)
       ? detail.citations as PolicyCitation[]
@@ -261,10 +263,31 @@ async function streamAgentChat(
 }
 
 export const api = {
-  async saveSourceData(publicId: string, data: SourceApplicant) { return request<SourceReview>(`/api/applications/${encodeURIComponent(publicId)}/source-data`, { method: "POST", body: JSON.stringify(data) }); },
-  async uploadSourceDocuments(publicId: string, type: SourceDocumentType, files: File[], replace: boolean) { const form = new FormData(); files.forEach(file => form.append("files", file)); return request<SourceReview>(`/api/applications/${encodeURIComponent(publicId)}/documents/${type}?replace=${replace}`, { method: "POST", body: form }); },
-  async analyzeSources(publicId: string) { return request<SourceReview>(`/api/applications/${encodeURIComponent(publicId)}/source-review`, { method: "POST" }); },
-  async downloadSourceDocument(publicId: string, documentId: string, filename: string, reviewer = false) { const token = readDemoToken(); const response = await fetch(`${API_URL}/api/${reviewer ? "admin/" : ""}applications/${encodeURIComponent(publicId)}/documents/${encodeURIComponent(documentId)}/file`, { headers: !reviewer && token ? { Authorization: `Bearer ${token}` } : {}, cache: "no-store" }); if (!response.ok) throw new ApiError("無法讀取原始文件。", "DOCUMENT_UNAVAILABLE", response.status); const url = URL.createObjectURL(await response.blob()); const link = document.createElement("a"); link.href = url; link.download = filename; link.click(); window.setTimeout(() => URL.revokeObjectURL(url), 1000); },
+  async saveSourceData(publicId: string, data: SourceApplicant) {
+    return request<SourceReview>(`/api/applications/${encodeURIComponent(publicId)}/source-data`, { method: "POST", body: JSON.stringify(data) });
+  },
+  async uploadSourceDocuments(publicId: string, type: SourceDocumentType, files: File[]) {
+    const form = new FormData();
+    files.forEach((file) => form.append("files", file));
+    return request<SourceReview>(`/api/applications/${encodeURIComponent(publicId)}/documents/${type}`, { method: "POST", body: form });
+  },
+  async analyzeSources(publicId: string) {
+    return request<SourceReview>(`/api/applications/${encodeURIComponent(publicId)}/source-review`, { method: "POST" });
+  },
+  async downloadSourceDocument(publicId: string, documentId: string, filename: string, reviewer = false) {
+    const token = readDemoToken();
+    const response = await fetch(`${API_URL}/api/${reviewer ? "admin/" : ""}applications/${encodeURIComponent(publicId)}/documents/${encodeURIComponent(documentId)}/file`, {
+      headers: !reviewer && token ? { Authorization: `Bearer ${token}` } : {},
+      cache: "no-store",
+    });
+    if (!response.ok) throw new ApiError("無法讀取原始文件。", "DOCUMENT_UNAVAILABLE", response.status);
+    const url = URL.createObjectURL(await response.blob());
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  },
   async health() {
     return request<{
       status: string;
@@ -323,38 +346,17 @@ export const api = {
     return unwrap<Application[]>(body, "applications", "items");
   },
 
-  async setSubscription(publicId: string, provider: string, product: string) {
-    const body = await request<unknown>(
-      `/api/applications/${encodeURIComponent(publicId)}/subscription`,
-      {
-        method: "POST",
-        body: JSON.stringify({ provider, product }),
-      },
-    );
-    return unwrap<Application | Subscription>(body, "application", "subscription");
+  async cancelApplication(publicId: string) {
+    const body = await request<unknown>(`/api/applications/${encodeURIComponent(publicId)}/cancel`, { method: "POST" });
+    return normalizeApplication(body);
   },
 
-  async uploadReceipt(publicId: string, file: File) {
-    const formData = new FormData();
-    formData.append("file", file);
-    const body = await request<unknown>(
-      `/api/applications/${encodeURIComponent(publicId)}/receipt`,
-      { method: "POST", body: formData },
-    );
-    return unwrap<Application | Subscription>(body, "application", "subscription", "receipt");
+  async getApplicationStatus(publicId: string) {
+    return request<ApplicationStatusInfo>(`/api/applications/${encodeURIComponent(publicId)}/status`);
   },
 
-  async getReceipt(publicId: string) {
-    const body = await request<unknown>(`/api/applications/${encodeURIComponent(publicId)}/receipt`);
-    return unwrap<Subscription>(body, "receipt", "subscription");
-  },
-
-  async checkEligibility(publicId: string) {
-    const body = await request<unknown>(
-      `/api/applications/${encodeURIComponent(publicId)}/eligibility/check`,
-      { method: "POST" },
-    );
-    return normalizeEligibility(unwrap<unknown>(body, "eligibility", "result")) as EligibilityResult;
+  async bindLine(code: string) {
+    return request<{ message: string }>("/api/line/bind", { method: "POST", body: JSON.stringify({ code }) });
   },
 
   async submitApplication(publicId: string) {
@@ -472,11 +474,12 @@ export const api = {
     return unwrap<AdminStats>(body, "stats");
   },
 
-  async getAdminApplications(filters?: { status?: string; product?: string; risk?: string; search?: string }) {
+  async getAdminApplications(filters?: { status?: string; product?: string; risk?: string; aiResult?: string; search?: string }) {
     const params = new URLSearchParams();
     if (filters?.status) params.set("status", filters.status);
     if (filters?.product) params.set("product", filters.product);
     if (filters?.risk) params.set("risk_level", filters.risk);
+    if (filters?.aiResult) params.set("ai_result", filters.aiResult);
     if (filters?.search) params.set("search", filters.search);
     const suffix = params.size ? `?${params.toString()}` : "";
     const body = await request<unknown>(`/api/admin/applications${suffix}`);
@@ -490,26 +493,33 @@ export const api = {
     return normalizeApplication(body);
   },
 
-  async runVerification(publicId: string) {
+  async runVerification(publicId: string, reviewerName: string) {
     const body = await request<unknown>(
       `/api/admin/applications/${encodeURIComponent(publicId)}/verify`,
-      { method: "POST" },
+      { method: "POST", body: JSON.stringify({ reviewer_name: reviewerName }) },
     );
     return normalizeApplication(body);
   },
 
-  async reviewAction(publicId: string, action: "approve" | "reject" | "request-info", reason: string, overrideReviewFlag = false) {
+  async reviewAction(publicId: string, action: "approve" | "reject" | "request-info" | "flag-check", reviewerName: string, reason: string, overrideReviewFlag = false) {
     const body = await request<unknown>(
       `/api/admin/applications/${encodeURIComponent(publicId)}/${action}`,
-      { method: "POST", body: JSON.stringify({ reason, override_review_flag: overrideReviewFlag }) },
+      { method: "POST", body: JSON.stringify({ reviewer_name: reviewerName, reason, override_review_flag: overrideReviewFlag }) },
     );
     return normalizeApplication(body);
   },
 
-  async processPayment(publicId: string) {
+  async notifyApplicant(publicId: string, reviewerName: string, message: string) {
+    return request<{ message: string }>(
+      `/api/admin/applications/${encodeURIComponent(publicId)}/notify`,
+      { method: "POST", body: JSON.stringify({ reviewer_name: reviewerName, message }) },
+    );
+  },
+
+  async processPayment(publicId: string, reviewerName: string) {
     const body = await request<unknown>(
       `/api/admin/applications/${encodeURIComponent(publicId)}/process-payment`,
-      { method: "POST" },
+      { method: "POST", body: JSON.stringify({ reviewer_name: reviewerName }) },
     );
     return unwrap<Application["payment"]>(body, "payment");
   },

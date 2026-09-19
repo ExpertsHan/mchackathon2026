@@ -12,6 +12,7 @@ const statusStyle: Record<ApplicationStatus, string> = {
   REJECTED: "border-red-200 bg-red-50 text-red-800",
   PAYMENT_SCHEDULED: "border-violet-200 bg-violet-50 text-violet-800",
   PAID: "border-teal-200 bg-teal-50 text-teal-800",
+  CANCELLED: "border-slate-200 bg-slate-100 text-slate-500",
 };
 
 const statusIcon = {
@@ -24,6 +25,7 @@ const statusIcon = {
   REJECTED: XCircle,
   PAYMENT_SCHEDULED: WalletCards,
   PAID: CheckCircle2,
+  CANCELLED: XCircle,
 } satisfies Record<ApplicationStatus, typeof CircleDot>;
 
 export function StatusBadge({ status, className, showIcon = true }: { status: ApplicationStatus; className?: string; showIcon?: boolean }) {

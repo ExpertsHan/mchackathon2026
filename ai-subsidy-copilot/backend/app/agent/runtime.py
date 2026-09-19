@@ -116,12 +116,9 @@ def _unique_citations(items: list[PolicyCitation]) -> list[PolicyCitation]:
 
 def _suggested_actions(state: AgentState) -> list[SuggestedAction]:
     if state.stage == WorkflowStage.COLLECT_SUBSCRIPTION:
-        return [
-            SuggestedAction(type="quick_reply", label=product, value=product)
-            for product in ("ChatGPT Plus", "Claude Pro", "Notion AI", "Other")
-        ]
+        return [SuggestedAction(type="link", label="Fill in applicant details", href="/apply")]
     if state.stage == WorkflowStage.COLLECT_RECEIPT:
-        return [SuggestedAction(type="upload_receipt", label="Upload receipt")]
+        return [SuggestedAction(type="upload_receipt", label="Upload documents")]
     if state.stage == WorkflowStage.CHECK_ELIGIBILITY:
         return [SuggestedAction(type="check_eligibility", label="Check eligibility")]
     if state.stage == WorkflowStage.FINAL_REVIEW:
@@ -140,9 +137,7 @@ def _suggested_actions(state: AgentState) -> list[SuggestedAction]:
 def _history_input(
     db: Session, *, user_id: uuid.UUID, public_id: str | None, message: str
 ) -> list[dict[str, str]]:
-    history = (
-        load_agent_history(db, user_id=user_id, public_id=public_id) if public_id else []
-    )
+    history = load_agent_history(db, user_id=user_id, public_id=public_id) if public_id else []
     items = [dict(item) for item in history]
     items.append(
         {
@@ -211,8 +206,7 @@ def _execute_tool(
             user_id=user_id,
             details={
                 "retrieved_sources": [
-                    {"document": item.document, "section": item.section}
-                    for item in citations
+                    {"document": item.document, "section": item.section} for item in citations
                 ],
                 "model": settings.active_ai_model,
                 "outcome": "retrieved" if citations else "not_established",
@@ -378,7 +372,7 @@ def _gemini_events(
             if isinstance(content, str) and content:
                 answer_parts.append(content)
                 yield {"type": "delta", "text": content}
-            for tool_delta in (_field(delta, "tool_calls", []) or []):
+            for tool_delta in _field(delta, "tool_calls", []) or []:
                 index = int(_field(tool_delta, "index", 0) or 0)
                 pending = pending_calls.setdefault(
                     index,
@@ -540,8 +534,7 @@ def stream_chat_events(
                         yield {
                             "type": "suggested_actions",
                             "suggested_actions": [
-                                item.model_dump(mode="json")
-                                for item in response.suggested_actions
+                                item.model_dump(mode="json") for item in response.suggested_actions
                             ],
                         }
                     yield {
@@ -586,7 +579,5 @@ def stream_chat_events(
     }
 
 
-def history(
-    db: Session, *, user_id: uuid.UUID, public_id: str
-) -> list[dict[str, str]]:
+def history(db: Session, *, user_id: uuid.UUID, public_id: str) -> list[dict[str, str]]:
     return load_agent_history(db, user_id=user_id, public_id=public_id)

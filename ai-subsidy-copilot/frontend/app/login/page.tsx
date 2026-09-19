@@ -12,8 +12,8 @@ import { useSession } from "@/contexts/session-context";
 import { validatedPostLoginPath } from "@/lib/demo-auth";
 
 function scenarioFor(user: DemoUser) {
-  if (user.age < 18) return { label: "Age rule demo", tone: "bg-amber-100 text-amber-900", description: "Shows a failed age requirement" };
-  if (user.name.toLowerCase().includes("jamie")) return { label: "Review demo", tone: "bg-violet-100 text-violet-900", description: "Shows duplicate-receipt review" };
+  if (user.age < 16 || user.age > 40) return { label: "Age rule demo", tone: "bg-amber-100 text-amber-900", description: "Outside the 16–40 age range (RULE-001)" };
+  if (user.name.toLowerCase().includes("jamie")) return { label: "Review demo", tone: "bg-violet-100 text-violet-900", description: "Shows duplicate-receipt (FRAUD_RISK) review" };
   return { label: "Happy path", tone: "bg-emerald-100 text-emerald-900", description: "Eligible, low-risk application" };
 }
 

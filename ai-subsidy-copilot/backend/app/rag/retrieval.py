@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import re
 from datetime import date
+from functools import lru_cache
 
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import cast, or_, select
@@ -26,7 +28,7 @@ TOKEN_ALIASES = {
     "privacy": {"privacy", "confidential", "identifiers", "authorization", "data"},
     "meeting": {"meeting", "notes", "confidential", "privacy", "authorization"},
     "payment": {"payment", "paid", "approval", "treasury"},
-    "amount": {"amount", "maximum", "600", "reimbursement", "cost"},
+    "amount": {"amount", "maximum", "3000", "6000", "reimbursement", "cost", "subsidy", "rate"},
 }
 STOPWORDS = {
     "a",
@@ -60,11 +62,48 @@ STOPWORDS = {
     "program",
     "subsidy",
 }
-KNOWN_PRODUCTS = {
-    "chatgpt plus": "ChatGPT Plus",
-    "claude pro": "Claude Pro",
-    "notion ai": "Notion AI",
-}
+# Plan words that do not change what a product is (ChatGPT Plus, Claude Pro, Gemini Advanced).
+# Anything else after a known name ("... Enterprise", "... API") is not established.
+PLAN_WORDS = frozenset(
+    {"plus", "pro", "premium", "plan", "subscription", "ai", "advanced", "ultra"}
+)
+
+
+@lru_cache
+def tool_register() -> tuple[dict, ...]:
+    """The rule engine's tool catalog, exported to knowledge/tool_register.json."""
+
+    path = settings.knowledge_dir / "tool_register.json"
+    try:
+        return tuple(json.loads(path.read_text(encoding="utf-8")))
+    except (OSError, ValueError):
+        return ()
+
+
+def match_tool(candidate: str) -> dict | None:
+    """Exact-name match: a registered name/alias plus, at most, harmless plan words."""
+
+    words = " ".join(re.findall(r"[a-z0-9\u4e00-\u9fff.]+", candidate.casefold())).split()
+    for entry in tool_register():
+        for alias in entry["aliases"]:
+            alias_words = " ".join(re.findall(r"[a-z0-9\u4e00-\u9fff.]+", alias)).split()
+            if (
+                alias_words
+                and words[: len(alias_words)] == alias_words
+                and set(words[len(alias_words) :]) <= PLAN_WORDS
+            ):
+                return entry
+    return None
+
+
+def _known_terms() -> set[str]:
+    terms: set[str] = set()
+    for entry in tool_register():
+        for alias in entry["aliases"]:
+            terms.update(re.findall(r"[a-z0-9]+", alias))
+    return terms
+
+
 PRODUCT_CLAIM_PATTERNS = tuple(
     re.compile(pattern, re.IGNORECASE)
     for pattern in (
@@ -110,7 +149,6 @@ POLICY_QUERY_TERMS = {
     "safety",
     "subscription",
     "training",
-    *KNOWN_PRODUCTS.keys(),
 }
 
 
@@ -237,35 +275,45 @@ def _eligibility_product_candidate(query: str) -> str | None:
 def _deterministic_answer(query: str, results: list[PolicySearchResult]) -> str:
     lowered = query.lower()
     corpus = "\n".join(item.content.lower() for item in results)
-    product = next(
+    mentioned = next(
         (
-            name
-            for key, name in (
-                ("chatgpt", "ChatGPT Plus"),
-                ("claude", "Claude Pro"),
-                ("notion", "Notion AI"),
+            entry
+            for entry in tool_register()
+            if any(
+                re.search(rf"(?<![a-z0-9]){re.escape(alias)}(?![a-z0-9])", lowered)
+                for alias in entry["aliases"]
             )
-            if key in lowered
         ),
         None,
     )
-    if product:
-        if product.lower() in corpus and ("eligible" in corpus or "eligible products" in corpus):
+    if mentioned:
+        if not mentioned["eligible"]:
             return (
-                f"Yes. {product} appears in the current fictional demo program's eligible "
-                "subscription list. A final application decision is made by the deterministic "
-                "rule engine after all required evidence is checked."
+                f"No. {mentioned['name']} is not eligible: {mentioned['reason']}. "
+                "Tools on the prohibited list cannot receive the subsidy."
+            )
+        if mentioned["name"].lower() in corpus and "eligible" in corpus:
+            return (
+                f"Yes. {mentioned['name']} appears on the eligible AI services register. "
+                "The RULE-001~020 engine and a human reviewer make the final decision after "
+                "all required evidence is checked; API, credit and token plans and purchases "
+                "outside the official site are excluded."
             )
         return (
-            f"I cannot establish that {product} is eligible from the retrieved current demo policy."
+            f"I cannot establish that {mentioned['name']} is eligible from the retrieved "
+            "current policy."
         )
     if any(word in lowered for word in ("amount", "maximum", "how much", "reimburse")):
         return (
-            "The fictional demo program reimburses the eligible cost in TWD up to NT$600 per "
-            "calendar month. Foreign-currency demo receipts use a clearly labelled mock rate."
+            "Normal youth receive 50% of the eligible purchase amount up to NT$3,000. Special "
+            "groups and cultural/language preservers receive 90% up to NT$6,000. The amount "
+            "shown before approval is a trial estimate."
         )
     if re.search(r"\b(age|old)\b", lowered):
-        return "Applicants must have verified demo identity and be at least 18 years old."
+        return (
+            "Applicants must be 16 to 40 years old (born 1985-04-03 to 2010-04-02) with a "
+            "Hsinchu City household registration."
+        )
     if any(
         word in lowered
         for word in ("privacy", "confidential", "meeting", "identifier", "personal data")
@@ -287,7 +335,10 @@ def _deterministic_answer(query: str, results: list[PolicySearchResult]) -> str:
             "The same receipt cannot be reimbursed twice, and a duplicate is sent to human review."
         )
     if "month" in lowered or "monthly" in lowered:
-        return "A citizen may receive at most one successful reimbursement per calendar month."
+        return (
+            "A monthly plan must be applied for within 1 month of purchase, and every covered "
+            "month needs its own receipt, NT$ conversion and payment proof."
+        )
     # Evidence-grounded extractive fallback, capped to avoid dumping the corpus.
     first = results[0].content.split("\n\n", 1)[-1].strip()
     sentence = re.split(r"(?<=[.!?])\s+", first)[0]
@@ -297,21 +348,25 @@ def _deterministic_answer(query: str, results: list[PolicySearchResult]) -> str:
 def answer_policy_question(db: Session, query: str, *, top_k: int = 4) -> PolicyAnswer:
     results = search_policy(db, query, top_k=top_k)
     candidate = _eligibility_product_candidate(query)
-    if candidate and _normalize_candidate(candidate) not in KNOWN_PRODUCTS:
-        eligibility_results = search_policy(db, "eligible products subscriptions list", top_k=2)
-        return PolicyAnswer(
-            answer=(
-                f"I cannot establish that {candidate} is eligible. It does not appear in the "
-                "retrieved current fictional demo policy's eligible-product list."
-            ),
-            citations=_unique_citations(eligibility_results),
-            established=False,
-            ai_used=False,
-        )
+    if candidate:
+        entry = match_tool(candidate)
+        if entry is None:
+            eligibility_results = search_policy(db, "eligible products subscriptions list", top_k=2)
+            return PolicyAnswer(
+                answer=(
+                    f"I cannot establish that {candidate} is eligible. It does not appear in the "
+                    "current eligible-tool register, so a human reviewer would have to decide."
+                ),
+                citations=_unique_citations(eligibility_results),
+                established=False,
+                ai_used=False,
+            )
+        register_results = search_policy(db, f"{entry['name']} eligible", top_k=2)
+        results = [*register_results, *results][:top_k] or results
     if not results:
         return PolicyAnswer(
             answer=(
-                "I cannot establish an answer from the current fictional demo policy. "
+                "I cannot establish an answer from the current policy. "
                 "A government reviewer would need to clarify this question."
             ),
             citations=[],
@@ -337,10 +392,13 @@ def answer_policy_question(db: Session, query: str, *, top_k: int = 4) -> Policy
     # product qualifies. Resolve this before optional generation so semantic
     # proximity can never become an affirmative eligibility claim.
     normalized_query = " ".join(re.findall(r"[a-z0-9]+", query.casefold()))
-    query_is_on_topic = any(term in normalized_query for term in POLICY_QUERY_TERMS)
+    query_terms = set(normalized_query.split())
+    query_is_on_topic = any(term in normalized_query for term in POLICY_QUERY_TERMS) or bool(
+        query_terms & _known_terms()
+    )
     if not query_is_on_topic or results[0].score < 0.2:
         return PolicyAnswer(
-            answer="I cannot establish an answer from the current fictional demo policy.",
+            answer="I cannot establish an answer from the current policy.",
             citations=[],
             established=False,
             ai_used=False,

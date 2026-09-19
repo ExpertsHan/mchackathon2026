@@ -16,6 +16,7 @@ from app.rag.retrieval import answer_policy_question
 from app.rag.retrieval import search_policy as retrieve_policy_chunks
 from app.services.eligibility import evaluate_application
 from app.services.safety import get_safety_progress
+from app.services.source_review import progress_snapshot
 
 ELIGIBLE_PRODUCTS = ["ChatGPT Plus", "Claude Pro", "Notion AI"]
 
@@ -125,21 +126,16 @@ def get_application_progress(
             "safety_complete": progress.all_complete,
         }
     application = get_application(db, public_id, user_id)
-    subscription = application.subscription
-    missing_fields: list[str] = []
-    if subscription is None or not subscription.product:
-        missing_fields.append("subscription product")
-    if subscription is None or not subscription.receipt_hash:
-        missing_fields.append("receipt")
+    snapshot = progress_snapshot(db, application)
     return {
         "application_selected": True,
         "public_id": application.public_id,
         "status": application.status.value,
-        "provider": subscription.provider if subscription else None,
-        "product": subscription.product if subscription else None,
-        "receipt_uploaded": bool(subscription and subscription.receipt_hash),
-        "eligibility_checked": application.eligibility_result is not None,
+        "provider": snapshot["company"],
+        "product": snapshot["tool"],
+        "receipt_uploaded": snapshot["receipt_uploaded"],
+        "eligibility_checked": snapshot["evaluated"],
         "safety_learning_optional": True,
         "safety_complete": progress.all_complete,
-        "missing_fields": missing_fields,
+        "missing_fields": [*snapshot["applicant_missing"], *snapshot["missing_documents"]],
     }

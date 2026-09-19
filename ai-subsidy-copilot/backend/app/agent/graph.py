@@ -28,6 +28,7 @@ from app.models import AgentSession
 from app.schemas.api import AgentChatResponse, SuggestedAction
 from app.services.applications import submit_application
 from app.services.audit import record_audit
+from app.services.source_review import progress_snapshot
 
 MAX_PERSISTED_MESSAGES = 8
 MAX_PERSISTED_USER_CHARS = 1000
@@ -149,20 +150,13 @@ def _derive_state(db: Session, user_id: uuid.UUID, public_id: str | None) -> Age
         return state
     application = get_application(db, public_id, user_id)
     state.status = application.status.value
-    subscription = application.subscription
-    if subscription:
-        state.provider = subscription.provider
-        state.product = subscription.product
-        state.receipt_id = subscription.receipt_reference
-        state.receipt_extracted = subscription.extraction_json or {}
+    snapshot = progress_snapshot(db, application)
+    state.provider = snapshot["company"]
+    state.product = snapshot["tool"]
+    state.receipt_id = "uploaded" if snapshot["receipt_uploaded"] else None
     progress = safety_progress(db, user_id)
     state.safety_complete = progress.all_complete
-    missing: list[str] = []
-    if not subscription or not subscription.product:
-        missing.append("subscription product")
-    if not subscription or not subscription.receipt_hash:
-        missing.append("receipt")
-    state.missing_fields = missing
+    state.missing_fields = [*snapshot["applicant_missing"], *snapshot["missing_documents"]]
     if application.status in {
         ApplicationStatus.SUBMITTED,
         ApplicationStatus.VERIFYING,
@@ -170,15 +164,16 @@ def _derive_state(db: Session, user_id: uuid.UUID, public_id: str | None) -> Age
         ApplicationStatus.REJECTED,
         ApplicationStatus.PAYMENT_SCHEDULED,
         ApplicationStatus.PAID,
+        ApplicationStatus.CANCELLED,
     }:
         state.stage = WorkflowStage.END
     elif application.status == ApplicationStatus.MANUAL_REVIEW:
         state.stage = WorkflowStage.MANUAL_REVIEW_REQUIRED
-    elif not subscription or not subscription.product:
+    elif snapshot["applicant_missing"]:
         state.stage = WorkflowStage.COLLECT_SUBSCRIPTION
-    elif not subscription.receipt_hash:
+    elif snapshot["missing_documents"]:
         state.stage = WorkflowStage.COLLECT_RECEIPT
-    elif not application.eligibility_result:
+    elif not snapshot["evaluated"]:
         state.stage = WorkflowStage.CHECK_ELIGIBILITY
     else:
         state.stage = WorkflowStage.FINAL_REVIEW
@@ -273,14 +268,19 @@ def deterministic_chat(
             )
     elif state.intent == AgentIntent.ELIGIBILITY and public_id:
         evaluation = run_eligibility(db, public_id, user_id)
-        state.eligibility_result = evaluation.model_dump(mode="json")
-        passed = sum(check.passed for check in evaluation.checks)
-        response_text = (
-            f"The deterministic rule engine passed {passed} of {len(evaluation.checks)} checks. "
-            f"The current result is {evaluation.outcome.value}."
-        )
-        if evaluation.requires_manual_review:
-            response_text += " This application requires human review."
+        if evaluation is None:
+            response_text = (
+                "Fill in your applicant details and upload your documents first; "
+                "the RULE-001~020 checks run once they are on file."
+            )
+        else:
+            state.eligibility_result = evaluation.model_dump(mode="json")
+            passed = sum(check.passed for check in evaluation.checks)
+            response_text = (
+                f"The deterministic rule engine passed {passed} of {len(evaluation.checks)} "
+                f"checks (result: {evaluation.ai_result}). It only advises: a human reviewer "
+                "makes the final decision."
+            )
         actions.append(
             SuggestedAction(
                 type="link", label="Review eligibility", href=f"/application/{public_id}"
@@ -304,19 +304,22 @@ def deterministic_chat(
             response_text = exc.message
     else:
         if state.stage == WorkflowStage.COLLECT_SUBSCRIPTION:
-            response_text = "Which eligible AI service did you subscribe to?"
-            actions.extend(
-                SuggestedAction(type="quick_reply", label=product, value=product)
-                for product in ("ChatGPT Plus", "Claude Pro", "Notion AI", "Other")
+            response_text = (
+                "Please complete your applicant details (tool, purchase date, amounts, identity "
+                "type). Missing: " + ", ".join(state.missing_fields[:4])
             )
         elif state.stage == WorkflowStage.COLLECT_RECEIPT:
-            response_text = "Please upload your PDF, PNG, or JPEG subscription receipt."
-            actions.append(SuggestedAction(type="upload_receipt", label="Upload receipt"))
+            response_text = "Please upload the missing documents: " + ", ".join(
+                state.missing_fields[:4]
+            )
+            actions.append(SuggestedAction(type="upload_receipt", label="Upload documents"))
         elif state.stage == WorkflowStage.CHECK_ELIGIBILITY:
-            response_text = "Your receipt is ready. Run the deterministic eligibility check next."
+            response_text = "Your documents are ready. Run the RULE-001~020 check next."
             actions.append(SuggestedAction(type="check_eligibility", label="Check eligibility"))
         elif state.stage == WorkflowStage.FINAL_REVIEW:
-            response_text = "All required information is ready. Review and submit your application."
+            response_text = (
+                "All required information is ready. Submit for review; a human reviewer decides."
+            )
             actions.append(SuggestedAction(type="submit", label="Submit application"))
         elif state.stage == WorkflowStage.MANUAL_REVIEW_REQUIRED:
             response_text = (
@@ -342,9 +345,7 @@ def deterministic_chat(
     )
 
 
-def load_agent_history(
-    db: Session, *, user_id: uuid.UUID, public_id: str
-) -> list[dict[str, str]]:
+def load_agent_history(db: Session, *, user_id: uuid.UUID, public_id: str) -> list[dict[str, str]]:
     """Return only the owning citizen's already-sanitized persisted chat history."""
 
     application = get_application(db, public_id, user_id)

@@ -9,6 +9,7 @@ import sys
 import urllib.error
 import urllib.request
 import uuid
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -28,20 +29,25 @@ def call(
     payload: dict[str, Any] | None = None,
     *,
     file_path: Path | None = None,
+    file_bytes: bytes | None = None,
     token: str | None = None,
 ) -> Any:
     headers = {"Accept": "application/json"}
     if token:
         headers["Authorization"] = f"Bearer {token}"
     data: bytes | None = None
-    if file_path is not None:
+    if file_path is not None or file_bytes is not None:
         boundary = f"----ai-subsidy-{uuid.uuid4().hex}"
-        file_bytes = file_path.read_bytes()
+        if file_path is not None:
+            file_bytes = file_path.read_bytes()
+            filename, mime = file_path.name, "application/pdf"
+        else:
+            filename, mime = "document.png", "image/png"
         data = (
             (
                 f"--{boundary}\r\n"
-                f'Content-Disposition: form-data; name="file"; filename="{file_path.name}"\r\n'
-                "Content-Type: application/pdf\r\n\r\n"
+                f'Content-Disposition: form-data; name="files"; filename="{filename}"\r\n'
+                f"Content-Type: {mime}\r\n\r\n"
             ).encode()
             + file_bytes
             + f"\r\n--{boundary}--\r\n".encode()
@@ -67,158 +73,133 @@ def reset() -> dict[str, dict[str, Any]]:
     return {user["name"]: user for user in users}
 
 
-def create_application(user: dict[str, Any], provider: str, product: str) -> str:
-    login = call("POST", "/api/demo/login", {"user_id": user["id"]})
-    token = login["demo_token"]
+PNG = b"\x89PNG\r\n\x1a\n"
+FORM = {
+    "phone": "0912345678",
+    "birth_date": "2000-05-05",
+    "household_address": "新竹市東區光復路一段1號",
+    "mailing_address": "新竹市東區光復路一段1號",
+    "applicant_type": "normal",
+    "payment_type": "monthly",
+    "software_category": "general",
+    "applied_tool_name": "ChatGPT Plus",
+    "software_company": "OpenAI",
+    "purchase_date": (date.today() - timedelta(days=5)).isoformat(),
+    "is_own_credit_card": True,
+    "original_currency": "USD",
+    "original_amount": 20,
+    "declared_amount": 630,
+}
+REVIEWER = {"reviewer_name": "Smoke reviewer"}
+
+
+def login(user: dict[str, Any]) -> str:
+    token = call("POST", "/api/demo/login", {"user_id": user["id"]})["demo_token"]
     user["_demo_token"] = token
-    application = call("POST", "/api/applications", {"user_id": user["id"]}, token=token)
-    public_id = application["public_id"]
-    call(
-        "POST",
-        f"/api/applications/{public_id}/subscription",
-        {"provider": provider, "product": product},
-        token=token,
-    )
+    return token
+
+
+def start_application(user: dict[str, Any]) -> str:
+    token = login(user)
+    public_id = call("POST", "/api/applications", {"user_id": user["id"]}, token=token)["public_id"]
+    call("POST", f"/api/applications/{public_id}/source-data", FORM, token=token)
     return public_id
 
 
-def complete_safety(user: dict[str, Any]) -> None:
+def upload_documents(user: dict[str, Any], public_id: str) -> None:
     token = user["_demo_token"]
-    modules = call("GET", "/api/safety/modules", token=token)
-    for module in modules:
-        result = call(
+    for kind in ("id_card", "passbook", "declaration"):
+        call(
             "POST",
-            f"/api/safety/modules/{module['id']}/answer",
-            {"user_id": user["id"], "answer": CORRECT_ANSWERS[module["slug"]]},
+            f"/api/applications/{public_id}/documents/{kind}",
+            file_bytes=PNG + kind.encode(),
             token=token,
         )
-        assert result["correct"] is True, module["slug"]
-    progress = call("GET", f"/api/users/{user['id']}/safety-progress", token=token)
-    assert progress["all_complete"] is True
-    assert progress["completed_count"] == progress["total_count"] == 4
+    call(
+        "POST",
+        f"/api/applications/{public_id}/documents/receipt",
+        file_path=ROOT / "demo" / "receipts" / "chatgpt_plus_valid.pdf",
+        token=token,
+    )
 
 
-def happy_path() -> None:
+def policy_and_agent() -> None:
     users = reset()
     alex = users["Alex Chen"]
-    public_id = create_application(alex, "OpenAI", "ChatGPT Plus")
-
+    token = login(alex)
     answer = call("POST", "/api/policy/search", {"query": "Is ChatGPT Plus eligible?"})
     assert answer["established"] is True and answer["citations"]
-    unknown = call("POST", "/api/policy/search", {"query": "Is Gemini Advanced eligible?"})
+    banned = call("POST", "/api/policy/search", {"query": "Is CapCut eligible?"})
+    assert banned["answer"].startswith("No.")
+    unknown = call("POST", "/api/policy/search", {"query": "Is SuperNovaWriter eligible?"})
     assert unknown["established"] is False
     agent = call(
         "POST",
         "/api/agent/chat",
-        {
-            "user_id": alex["id"],
-            "application_id": public_id,
-            "message": "Is ChatGPT Plus eligible?",
-        },
-        token=alex["_demo_token"],
+        {"user_id": alex["id"], "message": "Is ChatGPT Plus eligible?"},
+        token=token,
     )
     assert agent["citations"]
-
-    receipt = call(
-        "POST",
-        f"/api/applications/{public_id}/receipt",
-        file_path=ROOT / "demo" / "receipts" / "chatgpt_plus_valid.pdf",
-        token=alex["_demo_token"],
-    )
-    assert receipt["subscription"]["product"] == "ChatGPT Plus"
-    assert receipt["subscription"]["amount_twd"] == "600.00"
-
-    eligible = call(
-        "POST",
-        f"/api/applications/{public_id}/eligibility/check",
-        token=alex["_demo_token"],
-    )
-    assert eligible["eligible"] is True
-    assert eligible["provisionally_eligible"] is False
-    assert eligible["approved_amount_twd"] == "600.00"
-
-    submitted = call("POST", f"/api/applications/{public_id}/submit", token=alex["_demo_token"])
-    assert submitted["application"]["status"] == "APPROVED"
-    complete_safety(alex)
-    first_payment = call("POST", f"/api/admin/applications/{public_id}/process-payment")
-    second_payment = call("POST", f"/api/admin/applications/{public_id}/process-payment")
-    assert first_payment["status"] == "PAID"
-    assert first_payment["transaction_id"] == second_payment["transaction_id"]
-    timeline = call("GET", f"/api/applications/{public_id}/timeline", token=alex["_demo_token"])
-    assert timeline["status"] == "PAID"
-    assert timeline["payment"]["amount_twd"] == "600.00"
-    print(f"ok happy path: {public_id} → {first_payment['transaction_id']}")
+    print("ok policy answers: eligible / prohibited / unlisted")
 
 
-def manual_review_path() -> None:
+def intake_and_review() -> None:
+    """Documents -> OCR -> RULE-001~020 -> human review. OCR needs GEMINI_API_KEY."""
+
     users = reset()
     alex = users["Alex Chen"]
-    public_id = create_application(alex, "OpenAI", "ChatGPT Plus")
-    receipt = call(
-        "POST",
-        f"/api/applications/{public_id}/receipt",
-        file_path=ROOT / "demo" / "receipts" / "malicious_prompt_injection_receipt.pdf",
-        token=alex["_demo_token"],
-    )
-    assert receipt["subscription"]["suspicious_content"] is True
-    complete_safety(alex)
-    submitted = call("POST", f"/api/applications/{public_id}/submit", token=alex["_demo_token"])
-    assert submitted["application"]["status"] == "MANUAL_REVIEW"
-    assert submitted["application"]["risk_level"] == "HIGH"
+    public_id = start_application(alex)
+    token = alex["_demo_token"]
+    early = None
+    try:
+        call("POST", f"/api/applications/{public_id}/submit", token=token)
+    except RuntimeError as exc:
+        early = str(exc)
+    assert early and "DOCUMENTS_INCOMPLETE" in early, "submit must wait for every document"
 
-    reviewed = call(
-        "POST",
-        f"/api/admin/applications/{public_id}/approve",
-        {
-            "reason": "Reviewer verified the valid receipt fields; embedded text is inert.",
-            "override_review_flag": True,
-        },
-    )
-    assert reviewed["application"]["status"] == "APPROVED"
-    payment = call("POST", f"/api/admin/applications/{public_id}/process-payment")
-    assert payment["status"] == "PAID"
-    print(f"ok manual review: {public_id} approved with audited override")
+    upload_documents(alex, public_id)
+    submitted = call("POST", f"/api/applications/{public_id}/submit", token=token)
+    status = submitted["application"]["status"]
+    # The engine never approves. With OCR configured the case waits for a reviewer;
+    # without Gemini the documents cannot be read and the applicant is asked to resubmit.
+    assert status in {"MANUAL_REVIEW", "REQUESTED_INFORMATION"}, status
+    assert submitted["application"]["approved_amount_twd"] is None
+    assert len(call("GET", f"/api/admin/applications/{public_id}")["source_review"]["evaluation"]["rules"]) >= 17
+
+    if status == "MANUAL_REVIEW":
+        flagged = call("GET", f"/api/admin/applications/{public_id}")
+        override = flagged["source_review"]["evaluation"]["result"] != "PASS"
+        approved = call(
+            "POST",
+            f"/api/admin/applications/{public_id}/approve",
+            {**REVIEWER, "reason": "Smoke test review", "override_review_flag": override},
+        )
+        assert approved["application"]["status"] == "APPROVED"
+        paid = call("POST", f"/api/admin/applications/{public_id}/process-payment", REVIEWER)
+        assert paid["status"] == "PAID"
+        again = call("POST", f"/api/admin/applications/{public_id}/process-payment", REVIEWER)
+        assert paid["transaction_id"] == again["transaction_id"]
+        print(f"ok intake -> review -> payment: {public_id}")
+    else:
+        cancelled = call("POST", f"/api/applications/{public_id}/cancel", token=token)
+        assert cancelled["application"]["status"] == "CANCELLED"
+        print(f"ok intake without OCR ({public_id}): supplement requested, then cancelled")
 
 
-def guardrail_paths() -> None:
+def one_application_at_a_time() -> None:
     users = reset()
     jamie = users["Jamie Lin"]
-    duplicate_id = create_application(jamie, "Notion", "Notion AI")
-    receipt = call(
-        "POST",
-        f"/api/applications/{duplicate_id}/receipt",
-        file_path=ROOT / "demo" / "receipts" / "duplicate_receipt.pdf",
-        token=jamie["_demo_token"],
-    )
-    assert receipt["duplicate_receipt"] is True
-    complete_safety(jamie)
-    duplicate = call(
-        "POST",
-        f"/api/applications/{duplicate_id}/submit",
-        token=jamie["_demo_token"],
-    )
-    assert duplicate["application"]["status"] == "MANUAL_REVIEW"
-    assert duplicate["application"]["risk_level"] == "HIGH"
-
-    taylor = users["Taylor Wang"]
-    age_id = create_application(taylor, "Anthropic", "Claude Pro")
-    call(
-        "POST",
-        f"/api/applications/{age_id}/receipt",
-        file_path=ROOT / "demo" / "receipts" / "claude_pro_valid.pdf",
-        token=taylor["_demo_token"],
-    )
-    evaluation = call(
-        "POST",
-        f"/api/applications/{age_id}/eligibility/check",
-        token=taylor["_demo_token"],
-    )
-    age_check = next(item for item in evaluation["checks"] if item["rule"] == "AGE_REQUIREMENT")
-    assert age_check["passed"] is False
-
+    token = login(jamie)
+    call("POST", "/api/applications", {"user_id": jamie["id"]}, token=token)
+    try:
+        call("POST", "/api/applications", {"user_id": jamie["id"]}, token=token)
+    except RuntimeError as exc:
+        assert "ACTIVE_APPLICATION_EXISTS" in str(exc)
+    else:
+        raise AssertionError("a second open application must be refused")
     stats = call("GET", "/api/admin/stats")
-    assert stats["manual_review"] >= 1
-    print(f"ok guardrails: duplicate {duplicate_id}; under-age {age_id}")
+    assert stats["total_applications"] >= 2
+    print("ok one open application per person")
 
 
 def main() -> None:
@@ -226,12 +207,12 @@ def main() -> None:
     if health["status"] != "ok":
         raise SystemExit(f"Backend is not healthy: {health}")
     # Reset twice up front to exercise FK-safe, idempotent cleanup with the
-    # seeded receipt/month claim reservations present after the first reset.
+    # seeded receipt claim reservations present after the first reset.
     reset()
     reset()
-    happy_path()
-    manual_review_path()
-    guardrail_paths()
+    policy_and_agent()
+    intake_and_review()
+    one_application_at_a_time()
     print("all smoke scenarios passed")
 
 
