@@ -71,6 +71,24 @@ async function askAI(userText) {
   }
 }
 
+// 與網頁 Copilot 相同的 AI 問答（RAG 政策檢索 + 引用），由 FastAPI 提供
+async function askCopilot(userId, text) {
+  try {
+    const data = await callApi('POST', '/api/internal/line/chat', { line_user_id: userId, message: text.slice(0, 2000) });
+    let reply = String(data.message || '').replace(/\*\*|__|^#+\s*/gm, '').trim();
+    if (!reply) return null;
+    const seen = new Set();
+    const refs = (data.citations || [])
+      .map((c) => [c.document, c.section, c.article].filter(Boolean).join(' ')).filter((r) => !seen.has(r) && seen.add(r))
+      .slice(0, 3);
+    if (refs.length) reply += `\n\n📎 依據：${refs.join('；')}`;
+    return reply.length > 4900 ? `${reply.slice(0, 4890)}…` : reply;
+  } catch (err) {
+    console.error('呼叫 Copilot 問答失敗，改用備援 AI：', err.message || err);
+    return null;
+  }
+}
+
 async function showLoadingAnimation(userId) {
   try {
     await fetch('https://api.line.me/v2/bot/chat/loading/start', {
@@ -154,7 +172,7 @@ async function handleEvent(event) {
   }
 
   await showLoadingAnimation(userId);
-  const aiReply = await askAI(text);
+  const aiReply = (await askCopilot(userId, text)) || (await askAI(text));
   const quickReply = {
     items: [
       { type: 'action', action: { type: 'message', label: '申請', text: '申請' } },

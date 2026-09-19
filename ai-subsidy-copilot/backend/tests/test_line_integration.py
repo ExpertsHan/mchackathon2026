@@ -167,3 +167,23 @@ def test_line_link_creates_applicant_and_returning_line_user_gets_same_record(
     assert client.post("/api/applicants/start", json={"line_code": code}).status_code == 200
     assert client.post("/api/applicants/start", json={"line_code": code}).status_code == 400
     assert client.post("/api/applicants/start", json={"line_code": "nope"}).status_code == 400
+
+
+def test_line_chat_answers_policy_questions_for_unlinked_users(client: TestClient) -> None:
+    body = {"line_user_id": LINE_USER, "message": "補助金額上限是多少？"}
+    assert client.post("/api/internal/line/chat", json=body).status_code == 401
+    response = client.post("/api/internal/line/chat", json=body, headers=KEY)
+    assert response.status_code == 200, response.text
+    assert response.json()["message"]
+    assert isinstance(response.json()["citations"], list)
+
+
+def test_line_chat_uses_agent_for_linked_users(client: TestClient) -> None:
+    client.post("/api/applicants/start", json={"line_code": link(client)})
+    response = client.post(
+        "/api/internal/line/chat",
+        json={"line_user_id": LINE_USER, "message": "我還缺什麼文件？"},
+        headers=KEY,
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["message"]

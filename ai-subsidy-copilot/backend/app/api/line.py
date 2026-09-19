@@ -25,6 +25,8 @@ from app.models import Application, LineBinding, LineLinkCode, User, utcnow
 from app.schemas.api import DemoLoginResponse, LineLinkRequest, MessageResponse
 from app.schemas.domain import UserRead
 from app.services.applications import cancel_application
+from app.rag.retrieval import answer_policy_question
+from app.agent.runtime import chat as agent_chat_reply
 from app.services.audit import record_audit
 
 router = APIRouter(tags=["line"])
@@ -101,6 +103,48 @@ def line_applications(line_user_id: str, db: Session = Depends(get_db)) -> dict:
             for application in _applications_for(db, line_user_id)
             if application.status is not ApplicationStatus.DRAFT
         ]
+    }
+
+
+class LineChatRequest(BaseModel):
+    line_user_id: str = Field(min_length=5, max_length=128)
+    message: str = Field(min_length=1, max_length=2000)
+
+
+@router.post("/api/internal/line/chat", dependencies=[Depends(require_internal_key)])
+def line_chat(payload: LineChatRequest, db: Session = Depends(get_db)) -> dict:
+    """Same AI Q&A as the web copilot (RAG + citations), for the LINE bot.
+
+    A LINE account already linked to an applicant gets the full agent (including its own
+    application progress); an unlinked account gets policy answers only.
+    """
+
+    binding = db.scalar(select(LineBinding).where(LineBinding.line_user_id == payload.line_user_id))
+    if binding is None:
+        answer = answer_policy_question(db, payload.message, top_k=4)
+        return {
+            "message": answer.answer,
+            "citations": [c.model_dump(mode="json") for c in answer.citations],
+            "ai_used": answer.ai_used,
+        }
+    latest = next(
+        (
+            a
+            for a in _applications_for(db, payload.line_user_id)
+            if a.status is not ApplicationStatus.DRAFT
+        ),
+        None,
+    )
+    reply = agent_chat_reply(
+        db,
+        user_id=binding.user_id,
+        public_id=latest.public_id if latest else None,
+        message=payload.message,
+    )
+    return {
+        "message": reply.message,
+        "citations": [c.model_dump(mode="json") for c in reply.citations],
+        "ai_used": reply.ai_used,
     }
 
 
