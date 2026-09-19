@@ -6,7 +6,7 @@ from app.core.config import settings
 from app.models import Application, PolicyDocument, SafetyModule
 from app.rag.ingestion import sync_knowledge
 from app.rag.retrieval import answer_policy_question
-from app.services.demo import seed_demo_data
+from app.services.demo import SAFETY_MODULES, seed_demo_data
 
 
 def test_chatgpt_query_retrieves_eligible_product_policy(db: Session) -> None:
@@ -117,8 +117,13 @@ def test_existing_demo_upgrades_learning_and_policy_without_reset(db: Session) -
     document.section = "Article 9 — AI Safety Training"
     document.content = "All four required modules must be completed before submission."
     document.content_hash = "legacy-safety-rule"
-    for module in db.scalars(select(SafetyModule)).all():
+    modules = list(db.scalars(select(SafetyModule)).all())
+    for module in modules:
         module.required = True
+    privacy_module = next(module for module in modules if module.slug == "privacy")
+    privacy_module.title = "Legacy privacy lesson"
+    privacy_module.question = "Legacy technical question"
+    privacy_module.choices_json = [{"id": "A", "text": "Legacy answer"}]
     application = db.scalar(select(Application))
     application_id = application.id
     recorded_decision = application.eligibility_reasons_json.copy()
@@ -129,6 +134,11 @@ def test_existing_demo_upgrades_learning_and_policy_without_reset(db: Session) -
     assert "optional" in upgraded.content.lower()
     assert "required modules" not in upgraded.content
     assert all(not module.required for module in db.scalars(select(SafetyModule)).all())
+    refreshed_privacy = db.get(SafetyModule, privacy_module.id)
+    expected_privacy = next(item for item in SAFETY_MODULES if item["slug"] == "privacy")
+    assert refreshed_privacy.title == expected_privacy["title"]
+    assert refreshed_privacy.question == expected_privacy["question"]
+    assert refreshed_privacy.choices_json == expected_privacy["choices_json"]
     assert db.get(Application, application_id).eligibility_reasons_json == recorded_decision
     assert sync_knowledge(db, settings.knowledge_dir) == 0
     answer = answer_policy_question(db, "Can I submit before completing safety training?")

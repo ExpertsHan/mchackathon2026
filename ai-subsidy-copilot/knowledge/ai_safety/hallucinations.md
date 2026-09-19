@@ -8,16 +8,16 @@ topic: ai_safety_hallucinations
 fictional: true
 ---
 
-# Module 2 — Hallucinations
+# Module 2 — Double-Check Important Answers
 
-AI-generated information can be incorrect even when it is specific and confidently expressed. Fluency is not evidence. For government, medical, legal, academic, or financial decisions, verify important claims against a trusted primary source and check whether the source is current.
+AI can give a clear and confident answer that is outdated or wrong. Before acting on important dates, eligibility rules, health advice, or money decisions, check a trusted primary source and make sure it is current.
 
 ## Check your understanding
 
-The AI says the subsidy deadline is September 30. What should you do?
+An AI assistant says a government subsidy closes tomorrow but gives no source. What should you do?
 
-- A. Trust it immediately
-- B. Verify it against the official policy source
-- C. Forward it to everybody
+- A. Submit based only on the AI answer
+- B. Check the current announcement on the official website
+- C. Forward the message to friends before checking
 
-Correct answer: B. A policy citation lets you inspect the evidence instead of trusting confidence or tone.
+Correct answer: B. Important dates and rules should be checked against a current official source.

@@ -8,22 +8,22 @@ topic: ai_safety_privacy
 fictional: true
 ---
 
-# Module 1 — Privacy
+# Module 1 — Privacy: Share Less Personal Information
 
 ## Data minimization and workplace material
 
-AI tools are useful, but text pasted into them may leave the environment you control. Share the minimum information necessary. Never casually submit passwords, API keys, banking credentials, national identifiers, confidential business information, private medical records, or another person’s personal data.
+People often ask AI to edit emails, cover letters, receipts, or forms. Text pasted into an AI service may leave the environment you control, so share only what the task needs. Never casually submit passwords, banking credentials, national identifiers, confidential business information, private medical records, or another person’s personal data.
 
-Before sending content, remove names and identifiers, use a fictional example when possible, and check the tool’s data-handling policy. A safe example is a public article that you want summarized.
+Before sending content, remove names, phone numbers, addresses, account numbers, and identifiers. Use a fictional example when possible and check the tool’s data-handling policy.
 
 For workplace material such as meeting notes, first check the organization's rules and confirm that you are authorized to use the selected AI service. Remove customer data, names, identifiers, and confidential decisions that the task does not require. Removing a person's name alone may not be enough if the remaining details can still identify them or disclose confidential information. Use a fictional excerpt when you only need an example.
 
 ## Check your understanding
 
-Which is safest to paste into an AI assistant?
+You want AI to improve a cover letter. Which version is safest to paste?
 
-- A. A banking password
-- B. A private patient record
-- C. A public article you want summarized
+- A. The full letter with your ID number and home address
+- B. The full letter with your phone number and personal email
+- C. A copy with your name, contact details, and ID numbers removed
 
-Correct answer: C. Public information contains less sensitive data, though you should still verify what the service does with inputs.
+Correct answer: C. Remove personal details that are not needed for the task before sharing text with AI.

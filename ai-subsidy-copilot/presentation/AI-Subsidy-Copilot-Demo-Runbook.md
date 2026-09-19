@@ -37,12 +37,12 @@ There are no passwords. These are fictional identities. Reviewer APIs are intent
 3. Choose **ChatGPT Plus**. The product selection triggers a policy eligibility question and a citation.
 4. Upload `demo/receipts/chatgpt_plus_valid.pdf`.
 5. Confirm the extracted values: OpenAI, ChatGPT Plus, USD 20.00, 2026-08-18, `DEMO-OPENAI-001`, 100% confidence.
-6. Run the eligibility check. Expect six passing checks and safety pending, with a provisional NT$600 outcome.
-7. Open **AI safety**. Complete the four modules with the correct choices:
-   - Privacy: A public article you want summarized.
-   - Hallucinations: Verify the official demo policy source.
-   - Prompt Injection: No.
-   - Human Responsibility: No.
+6. Run the eligibility check. Expect the deterministic policy result and note that optional safety learning does not block submission.
+7. If time allows, open **AI safety** and try the four optional, everyday-use questions:
+   - Cover letter: Use the copy with personal details removed.
+   - Subsidy deadline: Check the current official announcement.
+   - Suspicious article instruction: Do not provide the password.
+   - Incorrect form amount: Check the receipt and correct the form.
 8. Return to the application, review, and submit.
 9. After reset, Jamie's seeded historical claim is `AI-2026-000001`; Alex's new claim is normally `AI-2026-000002`.
 10. Open `/admin`, find Alex, open the record, and show the evidence, seven checks, citations, LOW risk, and audit timeline.
